@@ -1,98 +1,45 @@
-// Entry point for the Node Process Monitor
-// - Polls every minute
-// - Logs only changes
-// - Uses get-window for focused window
-// - Detects AFK/idle, system sleep/wake, process events
+// watch-and-restart.js
+import { spawn } from 'node:child_process';
+import chokidar from 'chokidar';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import getWindow from 'get-window';
-import si from 'systeminformation';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const MONITOR_FILE = path.join(__dirname, 'monitor.js');
+let child;
 
-const LOG_DIR = path.join(process.cwd(), 'logs');
-const LOG_FILE = path.join(LOG_DIR, 'monitor.log');
-const POLL_INTERVAL = 60 * 1000; // 1 minute
-const PROCESS_SUBSTRINGS = process.env.MONITOR_PROCESS_SUBSTRINGS?.split(',').map(s => s.trim()).filter(Boolean) || [];
-
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
-
-function logChange(data) {
-  fs.appendFileSync(LOG_FILE, JSON.stringify({ ...data, ts: new Date().toISOString() }) + os.EOL);
-}
-
-// Polling logic
-let lastState = {};
-let lastAFK = false;
-let lastSleepState = null;
-let lastProcessStates = {};
-let idleStart = null;
-const IDLE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-
-function getFocusedWindow() {
-  // Use get-window only
+function stopChild() {
+  if (!child) return;
   try {
-    return getWindow();
-  } catch (e) {
-    return null;
-  }
+    if (process.platform === 'win32') {
+      child.kill('SIGKILL');        // no PGIDs on Windows
+    } else {
+      process.kill(-child.pid, 'SIGKILL'); // kill the whole group
+    }
+  } catch { /* already gone */ }
 }
 
-function getIdleState() {
-  // Windows only: use os-utils idle time if available, else fallback
-  // Placeholder: always returns false (not idle)
-  // TODO: Implement real idle detection
-  return false;
+function startChild() {
+  stopChild();
+
+  child = spawn(process.execPath, [MONITOR_FILE], {
+    env: { ...process.env, MONITOR_CHILD: '1' },
+    stdio: 'inherit',
+    detached: process.platform !== 'win32' // only useful on POSIX
+  });
+  if (child.detached) child.unref();       // let parent exit freely
 }
 
-function getSleepState() {
-  // Placeholder: always returns null (no sleep/wake event)
-  // TODO: Implement real sleep/wake detection
-  return null;
-}
+startChild();
 
-async function getProcessStates() {
-  const allProcs = await si.processes();
-  const matches = allProcs.list.filter(proc => PROCESS_SUBSTRINGS.some(sub => proc.name && proc.name.includes(sub)));
-  const states = {};
-  for (const proc of matches) {
-    states[proc.pid] = {
-      name: proc.name,
-      cpu: proc.pcpu,
-      memory: proc.pmem,
-      status: proc.state,
-      started: proc.started,
-      mem_vsz: proc.mem_vsz,
-      mem_rss: proc.mem_rss,
-      unresponsive: proc.state === 'uninterruptible',
-    };
-  }
-  return states;
-}
+const watcher = chokidar.watch(MONITOR_FILE, { ignoreInitial: true })
+  .on('all', () => {
+    console.log('monitor.js changed, restarting monitor...');
+    startChild();
+  });
 
-async function poll() {
-  const focused = getFocusedWindow();
-  const isIdle = getIdleState();
-  const sleepState = getSleepState();
-  const processStates = await getProcessStates();
-
-  let changed = false;
-  const state = { focused, isIdle, sleepState, processStates };
-
-  if (JSON.stringify(state.focused) !== JSON.stringify(lastState.focused)) changed = true;
-  if (state.isIdle !== lastAFK) changed = true;
-  if (state.sleepState !== lastSleepState) changed = true;
-  if (JSON.stringify(state.processStates) !== JSON.stringify(lastProcessStates)) changed = true;
-
-  if (changed) {
-    logChange(state);
-    lastState = state;
-    lastAFK = state.isIdle;
-    lastSleepState = state.sleepState;
-    lastProcessStates = state.processStates;
-  }
-}
-
-setInterval(poll, POLL_INTERVAL);
-
-console.log('Node Process Monitor started. Logging to', LOG_FILE);
+process.on('SIGINT', () => {
+  watcher.close();
+  stopChild();
+  process.exit(0);
+});
