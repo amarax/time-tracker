@@ -3,10 +3,11 @@
     import * as d3 from 'd3';
     /**
      * @typedef {Object} Entry
-     * @property {string} start - ISO string
-     * @property {string} end - ISO string
-     * @property {string=} label
-     * @property {string=} color
+     * @property {Date} timestamp - ISO string representing the start time of the entry
+     * @property {string} title - Focused window title
+     * @property {string} process - Process name
+     * @property {string} path - File path of the process
+     * @property {string} [url] - URL if the entry is a web page
      */
 
     /**
@@ -32,9 +33,40 @@
         }
     );
 
-    let hours = $derived.by(
-        () => Array.from({ length: hourEnd - hourStart +1 }, (_, h) => hourStart + h)
-    );
+    const dayms = 24 * 60 * 60 * 1000;
+    const hourms = 60 * 60 * 1000;
+    const timeZoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
+
+    let displayedHourStart = $state(hourStart* hourms + timeZoneOffset);
+    let displayedHourEnd = $state(hourEnd* hourms + timeZoneOffset);
+
+
+    // Calculate hours as the hour of day for each hour in the range
+    let hours = $derived.by(() => {
+        let hours = [];
+        for(let h = displayedHourStart; h <= displayedHourEnd; h += hourms) {
+            // hourStart + h in ms, modulo dayms, gives hour of day
+            const ms = Math.ceil(h/hourms) * hourms;
+            hours.push(ms);
+        }
+        return hours;
+    });
+
+    // Scale the hours when the user scrolls, centered on the mouse position
+    function handleScroll(event) {
+        const delta = event.deltaY;
+        const centerY = event.clientY - container.getBoundingClientRect().top;
+        const centerHour = timeAxis.invert(centerY);
+
+        // Scale factor: zoom in/out
+        const scaleFactor = 1 + delta / 2000; // Prevent negative or zero range
+        
+        displayedHourStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
+        displayedHourEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
+
+        displayedHourStart = Math.max(0+timeZoneOffset, displayedHourStart);
+        displayedHourEnd = Math.min(24 * hourms+timeZoneOffset, displayedHourEnd);
+    }
 
     // SVG dimensions (responsive)
     
@@ -63,6 +95,7 @@
             updateSvgSize();
         });
         if (container) resizeObserver.observe(container);
+
     });
     onDestroy(() => {
         if (resizeObserver && container) resizeObserver.unobserve(container);
@@ -73,73 +106,55 @@
      * @returns {number}
      */
     function getDayIndex(date) {
-        for (let i = 0; i < dateRange.length; i++) {
-            if (
-                date.getFullYear() === dateRange[i].getFullYear() &&
-                date.getMonth() === dateRange[i].getMonth() &&
-                date.getDate() === dateRange[i].getDate()
-            ) {
-                return i;
-            }
-        }
-        return -1;
+
+        return (date.getDay() -1 + 7)%7;
+    }
+
+
+    function stringToColor(str) {
+        // Simple heuristic to generate a color based on the string
+        const hash = Array.from(str).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const hue = hash % 360;
+        return `hsl(${hue}, 70%, 70%)`;
     }
 
     // Map entries to SVG rectangles
     function getRects() {
         /** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:Entry}[]} */
         const rects = [];
-        for (const entry of entries) {
-            const start = new Date(entry.start);
-            const end = new Date(entry.end);
-            let cur = new Date(start);
-            cur.setHours(0, 0, 0, 0);
-            while (cur <= end) {
-                const dayIdx = getDayIndex(cur);
-                if (dayIdx === -1) {
-                    cur.setDate(cur.getDate() + 1);
-                    continue;
-                }
-                let entryStart = start;
-                let entryEnd = end;
-                if (
-                    cur.getFullYear() === start.getFullYear() &&
-                    cur.getMonth() === start.getMonth() &&
-                    cur.getDate() === start.getDate()
-                ) {
-                    entryStart = start;
-                } else {
-                    entryStart = new Date(cur);
-                    entryStart.setHours(hourStart, 0, 0, 0);
-                }
-                if (
-                    cur.getFullYear() === end.getFullYear() &&
-                    cur.getMonth() === end.getMonth() &&
-                    cur.getDate() === end.getDate()
-                ) {
-                    entryEnd = end;
-                } else {
-                    entryEnd = new Date(cur);
-                    entryEnd.setHours(hourEnd, 0, 0, 0);
-                }
-                // Clamp to visible hours
-                var startHour = Math.max(hourStart, entryStart.getHours() + entryStart.getMinutes() / 60);
-                var endHour = Math.min(hourEnd, entryEnd.getHours() + entryEnd.getMinutes() / 60);
-                if (endHour > startHour) {
-                    // Responsive width per cell
-                    var dynamicCellWidth = (svgWidth - labelWidth) / dateRange.length;
-                    rects.push({
-                        x: labelWidth + dayIdx * dynamicCellWidth,
-                        y: labelHeight + (startHour - hourStart) * cellHeight,
-                        width: dynamicCellWidth,
-                        height: (endHour - startHour) * cellHeight,
-                        label: entry.label,
-                        color: entry.color,
-                        entry
-                    });
-                }
-                cur.setDate(cur.getDate() + 1);
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const start = new Date(entry.timestamp);
+            const end = new Date(start);
+            if(entries[i + 1]) {
+                end.setTime(new Date(entries[i + 1].timestamp).getTime()); // Use next entry's start time minus 1 ms
+            } else {
+                continue;
             }
+
+
+            // If the times are out of bounds for displayed hours, skip
+            if (end.getTime() % dayms < displayedHourStart || start.getTime() % dayms> displayedHourEnd) {
+                continue;
+            }
+
+            const dayIndex = getDayIndex(start);
+
+            // Calculate rectangle position and size
+            const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
+            const y = timeAxis(start.getTime() % dayms);
+            const width = 0.5 * (svgWidth - labelWidth) / dateRange.length;
+            const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
+
+            rects.push({
+                x,
+                y,
+                width,
+                height,
+                label: entry.title || entry.process || entry.path || entry.url || '',
+                color: stringToColor(entry.process),
+                entry
+            });
         }
         return rects;
     }
@@ -147,22 +162,74 @@
     // D3 Y-axis setup
     let timeAxis = $derived.by(() => {
         return d3.scaleLinear()
-            .domain([hourStart, hourEnd])
+            .domain([displayedHourStart, displayedHourEnd])
             .range([labelHeight, svgHeight - labelHeight]);
     });
 
     let hourTicks = $derived.by(() => {
         return hours.map(h => {
+            let date = new Date();
+            date.setHours((h - timeZoneOffset)/hourms, 0, 0, 0);
             return {
                 value: h,
-                label: `${h}:00`
-            };
+                label: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
         });
     });
+
+    let isMiddlePanning = false;
+    let panStart = {clientY:0, timeAxisValue: 0};
+
+    function handleMouseDown(event) {
+        if (event.button === 1) { // Middle mouse button
+            isMiddlePanning = true;
+            
+            panStart.clientY = event.clientY;
+            panStart.timeAxisValue = timeAxis.invert(event.clientY - container.getBoundingClientRect().top);
+
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            event.preventDefault();
+        }
+    }
+
+    function handleMouseMove(event) {
+        if (!isMiddlePanning) return;
+        
+        const deltaY = event.clientY - panStart.clientY;
+        panStart.clientY = event.clientY;
+        
+        // Calculate how many ms to pan based on svgHeight
+        const range = displayedHourEnd - displayedHourStart;
+        const msPerPixel = (displayedHourEnd - displayedHourStart) / (svgHeight - 2 * labelHeight);
+        const msDelta = -deltaY * msPerPixel;
+
+        if(displayedHourStart + msDelta < 0 + timeZoneOffset) {
+            displayedHourStart = 0 + timeZoneOffset;
+            displayedHourEnd = displayedHourStart + range; // Keep the range the same
+            return;
+        }
+        if(displayedHourEnd + msDelta > 24 * hourms + timeZoneOffset) {
+            displayedHourEnd = 24 * hourms + timeZoneOffset;
+            displayedHourStart = displayedHourEnd - range; // Keep the range the same
+            return;
+        }
+
+        displayedHourStart += msDelta;
+        displayedHourEnd += msDelta;
+    }
+
+    function handleMouseUp(event) {
+        if (event.button === 1 && isMiddlePanning) {
+            isMiddlePanning = false;
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        }
+    }
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
-    <svg style="width:100%;height:100%;">
+    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} tabindex="0">
         <g transform={`translate(${labelWidth},0)`}></g>
         <!-- Day labels -->
         <g>
@@ -189,53 +256,55 @@
         </g>
 
         <!-- Hour labels and grid -->
-        <g>
-            {#each hourTicks as h, i}
-                <line
-                    x1={labelWidth}
-                    y1={timeAxis(h.value)}
-                    x2={svgWidth}
-                    y2={timeAxis(h.value)}
-                    stroke="#ddd"
-                    stroke-width="1"
-                />
-                <text
-                    x={labelWidth - 5}
-                    y={timeAxis(h.value) + 4}
-                    text-anchor="end"
-                    font-size="12"
-                    fill="#555"
-                >
-                    {h.label}
-                </text>
+        <g class="calendar-grid">
+            {#each hourTicks as h, i (h.value)}
+                <g transform={`translate(0, ${timeAxis(h.value)})`}>
+                    <line
+                        x1={labelWidth}
+                        y1="0"
+                        x2={svgWidth}
+                        y2="0"
+                        stroke="#ddd"
+                        stroke-width="1"
+                    />
+                    <text
+                        x={labelWidth - 5}
+                        y="4"
+                        text-anchor="end"
+                        font-size="12"
+                        fill="#555"
+                    >
+                        {h.label}
+                    </text>
+                </g>
             {/each}
         </g>
 
         <!-- Entries -->
-        <g>
+        <g class="entries">
             {#each getRects() as rect}
+                {#if rect.height > 1}
                 <rect
                     x={rect.x + 2}
                     y={rect.y + 2}
-                    width={rect.width - 4}
-                    height={rect.height - 4}
-                    rx="6"
+                    width={rect.width}
+                    height={rect.height}
                     fill={rect.color || "#90caf9"}
                     fill-opacity="0.85"
-                    stroke="#1976d2"
-                    stroke-width="1"
                 />
-                {#if rect.label}
+                {#if rect.label && rect.height > 20}
                     <text
-                        x={rect.x + rect.width / 2}
-                        y={rect.y + rect.height / 2 + 5}
-                        text-anchor="middle"
+                        x={rect.x+2}
+                        y={rect.y+2}
+                        dy={13}
+                        text-anchor="start"
                         font-size="13"
                         fill="#222"
                         pointer-events="none"
                     >
                         {rect.label}
                     </text>
+                {/if}
                 {/if}
             {/each}
         </g>
@@ -253,6 +322,15 @@
     text {
         font-family: Roboto, sans-serif;
         user-select: none;
+    }
+
+    .calendar-grid text {
         fill: var(--calendar-fg-color);
+
+    }
+
+    /* Add a transition for translate transforms */
+    svg g {
+        /* transition: transform 0.1s ease-out; */
     }
 </style>
