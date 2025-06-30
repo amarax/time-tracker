@@ -59,7 +59,7 @@
         const centerHour = timeAxis.invert(centerY);
 
         // Scale factor: zoom in/out
-        const scaleFactor = 1 + delta / 2000; // Prevent negative or zero range
+        const scaleFactor = 1 + delta / 500; // Prevent negative or zero range
         
         displayedHourStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
         displayedHourEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
@@ -226,10 +226,64 @@
             window.removeEventListener('mouseup', handleMouseUp);
         }
     }
+
+    // Tooltip state
+    let tooltip = $state({ visible: false, x: 0, y: 0, entry: null });
+
+    function findClosestEntry(mouseX, mouseY) {
+        if (!container) return null;
+        // Convert mouseX, mouseY to day and ms-of-day
+        const rect = container.getBoundingClientRect();
+        const svgX = mouseX - rect.left;
+        const svgY = mouseY - rect.top;
+        // Find day index
+        const dayWidth = (svgWidth - labelWidth) / dateRange.length;
+        let dayIdx = Math.floor((svgX - labelWidth) / dayWidth);
+        if (dayIdx < 0) dayIdx = 0;
+        if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
+        // Find ms-of-day from y
+        let msOfDay = timeAxis.invert(svgY);
+        // Find closest entry in that day
+        let minDist = Infinity;
+        let closest = null;
+        for (let entry of entries) {
+            const start = new Date(entry.timestamp);
+            const entryDayIdx = getDayIndex(start);
+            if (entryDayIdx !== dayIdx) continue;
+            const entryMs = start.getTime() % dayms;
+            const dist = Math.abs(entryMs - msOfDay);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = entry;
+            }
+        }
+        return closest;
+    }
+
+    function handleMouseMoveTooltip(event) {
+        const entry = findClosestEntry(event.clientX, event.clientY);
+        let x = getDayIndex(new Date(entry.timestamp)) * ((svgWidth - labelWidth) / dateRange.length) + labelWidth;
+
+        if (entry) {
+            tooltip = {
+                visible: true,
+                x,
+                y: event.clientY + 12,
+                entry
+            };
+        } else {
+            tooltip = { visible: false, x: 0, y: 0, entry: null };
+        }
+    }
+
+    function handleMouseLeaveTooltip() {
+        tooltip = { visible: false, x: 0, y: 0, entry: null };
+    }
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
-    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} tabindex="0">
+    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} tabindex="0"
+        onmousemove={handleMouseMoveTooltip} onmouseleave={handleMouseLeaveTooltip}>
         <g transform={`translate(${labelWidth},0)`}></g>
         <!-- Day labels -->
         <g>
@@ -309,6 +363,18 @@
             {/each}
         </g>
     </svg>
+    {#if tooltip.visible && tooltip.entry}
+        <div class="calendar-tooltip" style="position:fixed; left:{tooltip.x}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;">
+            <div style="background:#fff; border:1px solid #bbb; border-radius:4px; padding:8px 12px; box-shadow:0 2px 8px #0002; font-size:13px; min-width:180px; max-width:320px;">
+                <div><b>{tooltip.entry.title || tooltip.entry.process || tooltip.entry.path || tooltip.entry.url}</b></div>
+                <div style="color:#666; font-size:12px;">{tooltip.entry.process}</div>
+                <div style="color:#888; font-size:12px;">{new Date(tooltip.entry.timestamp).toLocaleString()}</div>
+                {#if tooltip.entry.url}
+                    <div style="color:#0074d9; font-size:12px; overflow-wrap:anywhere;">{tooltip.entry.url}</div>
+                {/if}
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -332,5 +398,14 @@
     /* Add a transition for translate transforms */
     svg g {
         /* transition: transform 0.1s ease-out; */
+    }
+
+    .calendar-tooltip {
+        pointer-events: none;
+        user-select: none;
+    }
+
+    .calendar-tooltip {
+        font-family: Roboto, sans-serif;
     }
 </style>

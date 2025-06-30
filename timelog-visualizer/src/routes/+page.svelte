@@ -20,7 +20,14 @@
         const lines = text.split('\n').filter(Boolean);
         const header = lines.shift().split(',');
         const entries = lines.map(line => {
-            const values = line.split(',');
+            // Unescape values that start and end with quotes
+            const values = line.split(',').map(value => {
+                if (value.startsWith('"') && value.endsWith('"')) {
+                    return value.slice(1, -1).replace(/""/g, '"'); // Unescape double quotes
+                }
+                return value;
+            });
+
             const entry = {};
             header.forEach((key, i) => {
                 entry[key] = values[i];
@@ -76,8 +83,8 @@
             entries={filteredEntries}
             {startDate} 
             days={7}
-            hourStart={0}
-            hourEnd={24} />
+            hourStart={7}
+            hourEnd={22} />
 </div>
 
 <style>
