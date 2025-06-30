@@ -5,7 +5,7 @@ import os from "os";
 import { activeWindow } from "get-windows";
 import si from "systeminformation";
 import dotenv from "dotenv";
-import RealIdle from "@paymoapp/real-idle";
+import desktopIdle from "desktop-idle";
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
@@ -64,7 +64,6 @@ function logProcessStates(processStates) {
 
 let lastFocused = undefined;
 let lastIdleState = false;
-let lastLockedState = false;
 let lastSleepState = null;
 let lastProcessStates = {};
 const IDLE_THRESHOLD = 5 * 60; // 5 minutes
@@ -124,19 +123,19 @@ async function poll() {
     // If sleep detected and not already in sleep, log sleep start
     if (sleepState && !lastSleepState) {
       // Log sleep start (lastPollTime is when sleep started)
-      logSystemState(lastIdleState, lastLockedState, 'sleep_start', new Date(lastPollTime).toISOString());
+      logSystemState(lastIdleState, 'sleep_start', new Date(lastPollTime).toISOString());
       lastSleepStart = lastPollTime;
     }
     // If waking up from sleep, log sleep stop (now)
     if (!sleepState && lastSleepState && lastSleepStart) {
-      logSystemState(lastIdleState, lastLockedState, 'sleep_stop', new Date(now).toISOString());
+      logSystemState(lastIdleState, 'sleep_stop', new Date(now).toISOString());
       lastSleepStart = null;
     }
     lastPollTime = now;
 
     const focused = await getFocusedWindow();
-    const idleState = RealIdle.getIdleState(IDLE_THRESHOLD);
-    const lockedState = RealIdle.getLocked();
+    const idleSeconds = desktopIdle.getIdleTime();
+    const idleState = idleSeconds >= IDLE_THRESHOLD;
     const processStates = await getProcessStates();
 
     // Track focused window changes
@@ -145,14 +144,13 @@ async function poll() {
       lastFocused = focused;
     }
 
-    // Track system (idle/locked/sleep) changes
-    if (idleState !== lastIdleState || lockedState !== lastLockedState || sleepState !== lastSleepState) {
+    // Track system (idle/sleep) changes
+    if (idleState !== lastIdleState || sleepState !== lastSleepState) {
       if (!sleepState && !lastSleepState) {
         // Only log normal state if not a sleep transition
-        logSystemState(idleState, lockedState, sleepState);
+        logSystemState(idleState, sleepState);
       }
       lastIdleState = idleState;
-      lastLockedState = lockedState;
       lastSleepState = sleepState;
     }
     // Track process state changes per PID
@@ -170,11 +168,12 @@ async function poll() {
   }
 }
 
-function logSystemState(isIdle, isLocked, sleepState, customTimestamp) {
+
+function logSystemState(isIdle, sleepState, customTimestamp) {
   if (!fs.existsSync(SYSTEM_LOG_FILE)) {
-    fs.writeFileSync(SYSTEM_LOG_FILE, "timestamp,isIdle,isLocked,sleepState" + os.EOL);
+    fs.writeFileSync(SYSTEM_LOG_FILE, "timestamp,isIdle,sleepState" + os.EOL);
   }
-  const line = `${customTimestamp || new Date().toISOString()},${isIdle},${isLocked},${sleepState}`;
+  const line = `${customTimestamp || new Date().toISOString()},${isIdle},${sleepState}`;
   fs.appendFileSync(SYSTEM_LOG_FILE, line + os.EOL);
 }
 
