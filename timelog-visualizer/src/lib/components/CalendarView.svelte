@@ -10,6 +10,16 @@
      * @property {string} [url] - URL if the entry is a web page
      */
 
+         /**
+     * @typedef {Object} ProcessEntry
+     * @property {Date[]} timestamps - ISO string representing the start time of the entry
+     * @property {string} pid - Process ID
+     * @property {string} name - Process exe file
+     * @property {string[]} cpu - CPU usage percentage
+     * @property {string[]} memory - Memory usage in bytes
+     * @property {Date} started - ISO string representing the start time of the process
+    */
+
     /**
      * CalendarView component props.
      * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
@@ -18,7 +28,7 @@
      * @property {number} hourStart - The starting hour of the day to display (default: 0).
      * @property {number} hourEnd - The ending hour of the day to display (default: 24).
      */
-    const { entries = [], startDate = null, days = 7, hourStart = 0, hourEnd = 24 } = $props();
+    const { entries = [], processEntries = [], startDate = null, days = 7, hourStart = 0, hourEnd = 24 } = $props();
 
     // --- Svelte 5 runes ---
     let dateRange = $derived.by(
@@ -159,6 +169,60 @@
         return rects;
     }
 
+    function getProcessRects() {
+        // Group the processes by name
+        let processNames = new Set();
+        for (let entry of processEntries) {
+            if (entry.name) {
+                processNames.add(entry.name);
+            }
+        }
+
+        // Map each set to an index
+        const processNameToIndex = {};
+        let index = 0;
+        for (let name of processNames) {
+            processNameToIndex[name] = index++;
+        }
+
+
+        /** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry}[]} */
+        const rects = [];
+        for (let i = 0; i < processEntries.length; i++) {
+            const entry = processEntries[i];
+            const start = entry.start;
+            const end = entry.end;
+
+            // If the times are out of bounds for displayed hours, skip
+            if (end.getTime() % dayms < displayedHourStart || start.getTime() % dayms> displayedHourEnd) {
+                continue;
+            }
+
+            const dayIndex = getDayIndex(start);
+
+            // Calculate rectangle position and size
+            const colWidth = 0.5 * (svgWidth - labelWidth) / dateRange.length;
+            
+            const x = labelWidth + (dayIndex + 0.5) * ((svgWidth - labelWidth) / dateRange.length) + 
+                (colWidth / processNames.size) * processNameToIndex[entry.name];
+            const y = timeAxis(start.getTime() % dayms);
+            const width = colWidth / processNames.size;
+            const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
+
+            rects.push({
+                x,
+                y,
+                width,
+                height,
+                label: entry.name || '',
+                color: stringToColor(entry.name),
+                entry
+            });
+        }
+
+        return rects;
+    }
+
     // D3 Y-axis setup
     let timeAxis = $derived.by(() => {
         return d3.scaleLinear()
@@ -241,6 +305,9 @@
         let dayIdx = Math.floor((svgX - labelWidth) / dayWidth);
         if (dayIdx < 0) dayIdx = 0;
         if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
+
+        
+
         // Find ms-of-day from y
         let msOfDay = timeAxis.invert(svgY);
         // Find closest entry in that day
@@ -262,9 +329,9 @@
 
     function handleMouseMoveTooltip(event) {
         const entry = findClosestEntry(event.clientX, event.clientY);
-        let x = getDayIndex(new Date(entry.timestamp)) * ((svgWidth - labelWidth) / dateRange.length) + labelWidth;
 
         if (entry) {
+            let x = getDayIndex(new Date(entry.timestamp)) * ((svgWidth - labelWidth) / dateRange.length) + labelWidth;
             tooltip = {
                 visible: true,
                 x,
@@ -331,6 +398,36 @@
                         {h.label}
                     </text>
                 </g>
+            {/each}
+        </g>
+
+        
+        <!-- Process Entries -->
+        <g class="process-entries">
+            {#each getProcessRects() as rect}
+                {#if rect.height > 1}
+                <rect
+                    x={rect.x + 2}
+                    y={rect.y + 2}
+                    width={rect.width}
+                    height={rect.height}
+                    fill={rect.color || "#ffcc80"}
+                    fill-opacity="0.85"
+                />
+                {#if rect.label && rect.height > 20}
+                    <text
+                        x={rect.x+2}
+                        y={rect.y+2}
+                        dy={13}
+                        text-anchor="start"
+                        font-size="13"
+                        fill="#222"
+                        pointer-events="none"
+                    >
+                        {rect.label}
+                    </text>
+                {/if}
+                {/if}
             {/each}
         </g>
 

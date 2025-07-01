@@ -11,11 +11,22 @@
      * @property {string} path - File path of the process
      * @property {string} [url] - URL if the entry is a web page
     */
+
+    /**
+     * @typedef {Object} ProcessEntry
+     * @property {Date[]} timestamps - ISO string representing the start time of the entry
+     * @property {string} pid - Process ID
+     * @property {string} name - Process exe file
+     * @property {string[]} cpu - CPU usage percentage
+     * @property {string[]} memory - Memory usage in bytes
+     * @property {Date} started - ISO string representing the start time of the process
+    */
+
     let entries = $state([]);
 
-    // Load the csv events from /logs/focused
-    async function load() {
-        const response = await fetch('/logs/focused');
+    // Load the csv events from /logs
+    async function load(logPath) {
+        const response = await fetch(`/logs/${logPath}`);
         const text = await response.text();
         const lines = text.split('\n').filter(Boolean);
         const header = lines.shift().split(',');
@@ -38,15 +49,58 @@
             ...entry,
             timestamp: new Date(entry.timestamp),
         }));
+
+        if(logPath === "process") {
+            // Convert process entries to the expected format
+            return consolidateProcessEntries(entries);
+        }
+
         return entries;
     }
 
+    let processEntries = $state([]);
+
     onMount(async () => {
-        entries = await load();
+        entries = await load("focused");
         // Here you can set the entries to a store or pass them directly to the CalendarView
         // For example, if you have a store:
         // calendarStore.set(entries);
+
+        processEntries = await load("process");
     });
+
+
+    function consolidateProcessEntries(entries) {
+        function key(entry) {
+            return `${entry.pid}-${new Date(entry.started).getTime()}-${new Date(entry.timestamp).getDay()}`;
+        }
+
+        const consolidated = {};
+        for(const e of entries) {
+            let lastEntry = consolidated[key(e)];
+            if (lastEntry) {
+                // If the last entry has the same PID, update it
+                lastEntry.timestamps.push(new Date(e.timestamp));
+                lastEntry.cpu.push(e.cpu);
+                lastEntry.memory.push(e.memory);
+                lastEntry.end = new Date(e.timestamp);
+            } else {
+                // Otherwise, create a new entry
+                consolidated[key(e)] = {
+                    pid: e.pid,
+                    name: e.name,
+                    timestamps: [new Date(e.timestamp)],
+                    cpu: [e.cpu],
+                    memory: [e.memory],
+                    start: new Date(e.timestamp),
+                    end: new Date(e.timestamp),
+                };
+            }
+        }
+        return Object.values(consolidated);
+    }
+y
+
 
     let startDate = $state(setStartDateToMonday(new Date()));
 
@@ -67,20 +121,25 @@
     }
 
     let filteredEntries = $derived(entries?.filter(entry => {
-            const entryDate = new Date(entry.timestamp);
-            return entryDate >= startDate && entryDate < new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-        }));
+        const entryDate = new Date(entry.timestamp);
+        return entryDate >= startDate && entryDate < new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }));
+
+    let filteredProcessEntries = $derived(processEntries?.filter(entry => {
+        return entry.end >= startDate && entry.start < new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }));
 </script>
 
 <div class="container">
     <h1>Time log viewer</h1>
     <div class="week-nav">
-        <button aria-label="Previous week" on:click={() => changeWeek(-1)}>&larr;</button>
+        <button aria-label="Previous week" onclick={() => changeWeek(-1)}>&larr;</button>
         <span class="week-label">{startDate.toLocaleDateString()} - {new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString()}</span>
-        <button aria-label="Next week" on:click={() => changeWeek(1)}>&rarr;</button>
+        <button aria-label="Next week" onclick={() => changeWeek(1)}>&rarr;</button>
     </div>
     <CalendarView
             entries={filteredEntries}
+            processEntries={filteredProcessEntries}
             {startDate} 
             days={7}
             hourStart={7}
