@@ -30,7 +30,7 @@
         const text = await response.text();
         const lines = text.split('\n');
         const header = lines.shift().split(',');
-        const entries = lines.map(line => {
+        const rows = lines.map(line => {
             // Unescape values that start and end with quotes
             const values = line.split(',').map(value => {
                 if (value.startsWith('"') && value.endsWith('"')) {
@@ -44,18 +44,20 @@
                 entry[key] = values[i];
             });
             return entry;
-        })
-        .map(entry => ({
+        });
+
+        let e = rows.map((entry,i) => ({
             ...entry,
-            time: new Date(entry.time),
+            time: entry.time,
+            end: rows[i+1]?.time, // Use the next entry's time as the end time, or the same time if it's the last entry
         }));
 
         if(logPath === "process") {
             // Convert process entries to the expected format
-            return consolidateProcessEntries(entries);
+            return consolidateProcessEntries(e);
         }
 
-        return entries;
+        return e;
     }
 
     let processEntries = $state([]);

@@ -1,175 +1,180 @@
 <script>
-    import { onMount, onDestroy } from 'svelte';
-    import * as d3 from 'd3';
-    /**
-     * @typedef {Object} Entry
-     * @property {Date} time - ISO string representing the start time of the entry
-     * @property {string} title - Focused window title
-     * @property {string} process - Process name
-     * @property {string} path - File path of the process
-     * @property {string} [url] - URL if the entry is a web page
-     */
+	import { onMount, onDestroy } from 'svelte';
+	import * as d3 from 'd3';
+	import { get } from 'svelte/store';
+	/**
+	 * @typedef {Object} Entry
+	 * @property {Date} time - ISO string representing the start time of the entry
+	 * @property {string} title - Focused window title
+	 * @property {string} process - Process name
+	 * @property {string} path - File path of the process
+	 * @property {string} [url] - URL if the entry is a web page
+	 */
 
-         /**
-     * @typedef {Object} ProcessEntry
-     * @property {Date[]} timestamps - ISO string representing the start time of the entry
-     * @property {string} pid - Process ID
-     * @property {string} name - Process exe file
-     * @property {string[]} cpu - CPU usage percentage
-     * @property {string[]} memory - Memory usage in bytes
-     * @property {Date} started - ISO string representing the start time of the process
-    */
+	/**
+	 * @typedef {Object} ProcessEntry
+	 * @property {Date[]} timestamps - ISO string representing the start time of the entry
+	 * @property {string} pid - Process ID
+	 * @property {string} name - Process exe file
+	 * @property {string[]} cpu - CPU usage percentage
+	 * @property {string[]} memory - Memory usage in bytes
+	 * @property {Date} started - ISO string representing the start time of the process
+	 */
 
-    /**
-     * CalendarView component props.
-     * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
-     * @property {Date|null} startDate - The starting date for the calendar view. If null, defaults to current date.
-     * @property {number} days - Number of days to display in the calendar view (default: 7).
-     * @property {number} hourStart - The starting hour of the day to display (default: 0).
-     * @property {number} hourEnd - The ending hour of the day to display (default: 24).
-     */
-    const { entries = [], processEntries = [], startDate = null, days = 7, hourStart = 0, hourEnd = 24 } = $props();
+	/**
+	 * CalendarView component props.
+	 * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
+	 * @property {Date|null} startDate - The starting date for the calendar view. If null, defaults to current date.
+	 * @property {number} days - Number of days to display in the calendar view (default: 7).
+	 * @property {number} hourStart - The starting hour of the day to display (default: 0).
+	 * @property {number} hourEnd - The ending hour of the day to display (default: 24).
+	 */
+	const {
+		entries = [],
+		processEntries = [],
+		startDate = null,
+		days = 7,
+		hourStart = 0,
+		hourEnd = 24
+	} = $props();
 
-    // --- Svelte 5 runes ---
-    let dateRange = $derived.by(
-        () => {
-            const base = startDate ? new Date(startDate) : new Date();
-            base.setHours(0, 0, 0, 0);
-            return Array.from({ length: days }, (_, i) => {
-                const d = new Date(base);
-                d.setDate(base.getDate() + i);
-                return d;
-            });
-        }
-    );
+	// --- Svelte 5 runes ---
+	let dateRange = $derived.by(() => {
+		const base = startDate ? new Date(startDate) : new Date();
+		base.setHours(0, 0, 0, 0);
+		return Array.from({ length: days }, (_, i) => {
+			const d = new Date(base);
+			d.setDate(base.getDate() + i);
+			return d;
+		});
+	});
 
-    const dayms = 24 * 60 * 60 * 1000;
-    const hourms = 60 * 60 * 1000;
-    const timeZoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
+	const dayms = 24 * 60 * 60 * 1000;
+	const hourms = 60 * 60 * 1000;
+	const timeZoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
 
-    let displayedHourStart = $state(hourStart* hourms + timeZoneOffset);
-    let displayedHourEnd = $state(hourEnd* hourms + timeZoneOffset);
+	let displayedHourStart = $state(hourStart * hourms + timeZoneOffset);
+	let displayedHourEnd = $state(hourEnd * hourms + timeZoneOffset);
 
+	// Calculate hours as the hour of day for each hour in the range
+	let hours = $derived.by(() => {
+		let hours = [];
+		for (let h = displayedHourStart; h <= displayedHourEnd; h += hourms) {
+			// hourStart + h in ms, modulo dayms, gives hour of day
+			const ms = Math.ceil(h / hourms) * hourms;
+			hours.push(ms);
+		}
+		return hours;
+	});
 
-    // Calculate hours as the hour of day for each hour in the range
-    let hours = $derived.by(() => {
-        let hours = [];
-        for(let h = displayedHourStart; h <= displayedHourEnd; h += hourms) {
-            // hourStart + h in ms, modulo dayms, gives hour of day
-            const ms = Math.ceil(h/hourms) * hourms;
-            hours.push(ms);
-        }
-        return hours;
-    });
+	/**
+	 * Handles scroll events to zoom in/out on the calendar view.
+	 * @param {WheelEvent} event - The wheel event.
+	 */
+	function handleScroll(event) {
+		const delta = event.deltaY;
+		const centerY = event.clientY - container.getBoundingClientRect().top;
+		const centerHour = timeAxis.invert(centerY);
 
-    // Scale the hours when the user scrolls, centered on the mouse position
-    function handleScroll(event) {
-        const delta = event.deltaY;
-        const centerY = event.clientY - container.getBoundingClientRect().top;
-        const centerHour = timeAxis.invert(centerY);
+		// Scale factor: zoom in/out
+		const scaleFactor = 1 + delta / 500; // Prevent negative or zero range
 
-        // Scale factor: zoom in/out
-        const scaleFactor = 1 + delta / 500; // Prevent negative or zero range
-        
-        displayedHourStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
-        displayedHourEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
+		displayedHourStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
+		displayedHourEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
 
-        displayedHourStart = Math.max(0+timeZoneOffset, displayedHourStart);
-        displayedHourEnd = Math.min(24 * hourms+timeZoneOffset, displayedHourEnd);
-    }
+		displayedHourStart = Math.max(0 + timeZoneOffset, displayedHourStart);
+		displayedHourEnd = Math.min(24 * hourms + timeZoneOffset, displayedHourEnd);
+	}
 
-    // SVG dimensions (responsive)
-    
-    /** @type {HTMLElement?} */
-    let container;
-    
-    let svgWidth = $state(100);
-    let svgHeight = $state(100);
-    const cellWidth = 100;
-    const cellHeight = 40;
-    const labelWidth = 60;
-    const labelHeight = 24;
+	// SVG dimensions (responsive)
 
-    function updateSvgSize() {
-        if (container) {
-            svgWidth = container.clientWidth;
-            svgHeight = container.clientHeight || (labelHeight + hours.length * cellHeight);
-        }
-    }
+	/** @type {HTMLElement?} */
+	let container;
 
-    /** @type {ResizeObserver?} */
-    let resizeObserver;
-    onMount(() => {
-        updateSvgSize();
-        resizeObserver = new ResizeObserver(() => {
-            updateSvgSize();
-        });
-        if (container) resizeObserver.observe(container);
+	let svgWidth = $state(100);
+	let svgHeight = $state(100);
+	const cellWidth = 100;
+	const cellHeight = 40;
+	const labelWidth = 60;
+	const labelHeight = 24;
 
-    });
-    onDestroy(() => {
-        if (resizeObserver && container) resizeObserver.unobserve(container);
-    });
+	function updateSvgSize() {
+		if (container) {
+			svgWidth = container.clientWidth;
+			svgHeight = container.clientHeight || labelHeight + hours.length * cellHeight;
+		}
+	}
 
-    /**
-     * @param {Date} date
-     * @returns {number}
-     */
-    function getDayIndex(date) {
+	/** @type {ResizeObserver?} */
+	let resizeObserver;
+	onMount(() => {
+		updateSvgSize();
+		resizeObserver = new ResizeObserver(() => {
+			updateSvgSize();
+		});
+		if (container) resizeObserver.observe(container);
+	});
+	onDestroy(() => {
+		if (resizeObserver && container) resizeObserver.unobserve(container);
+	});
 
-        return (date.getDay() -1 + 7)%7;
-    }
+	/**
+	 * @param {Date} date
+	 * @returns {number}
+	 */
+	function getDayIndex(date) {
+		return (date.getDay() - 1 + 7) % 7;
+	}
 
+	function stringToColor(str) {
+		// Simple heuristic to generate a color based on the string
+		const hash = Array.from(str).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+		const hue = hash % 360;
+		return `hsl(${hue}, 70%, 70%)`;
+	}
 
-    function stringToColor(str) {
-        // Simple heuristic to generate a color based on the string
-        const hash = Array.from(str).reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        const hue = hash % 360;
-        return `hsl(${hue}, 70%, 70%)`;
-    }
-
-    // Map entries to SVG rectangles
-    function getRects() {
-        /** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:Entry}[]} */
-        const rects = [];
-        for (let i = 0; i < entries.length; i++) {
-            const entry = entries[i];
-            const start = new Date(entry.time);
-            const end = new Date(start);
-            if(entries[i + 1]) {
-                end.setTime(new Date(entries[i + 1].time).getTime()); // Use next entry's start time minus 1 ms
-            } else {
-                continue;
+	// Map entries to SVG rectangles
+	function getRects() {
+		/** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:Entry}[]} */
+		const rects = [];
+		for (let i = 0; i < entries.length; i++) {
+			const entry = entries[i];
+			const start = new Date(entry.time);
+			const end = new Date(entry.end);
+            if(entry.end == entry.time) {
+                end.setTime(start.getTime() + 1000); // Ensure end is at least 1 second after start
             }
 
+			// If the times are out of bounds for displayed hours, skip
+			if (
+				end.getTime() % dayms < displayedHourStart ||
+				start.getTime() % dayms > displayedHourEnd
+			) {
+				continue;
+			}
 
-            // If the times are out of bounds for displayed hours, skip
-            if (end.getTime() % dayms < displayedHourStart || start.getTime() % dayms> displayedHourEnd) {
-                continue;
-            }
+			const dayIndex = getDayIndex(start);
 
-            const dayIndex = getDayIndex(start);
+			// Calculate rectangle position and size
+			const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
+			const y = timeAxis(start.getTime() % dayms);
+			const width = (0.5 * (svgWidth - labelWidth)) / dateRange.length-4;
+			const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
 
-            // Calculate rectangle position and size
-            const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
-            const y = timeAxis(start.getTime() % dayms);
-            const width = 0.5 * (svgWidth - labelWidth) / dateRange.length;
-            const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
+			rects.push({
+				x,
+				y,
+				width,
+				height,
+				label: entry.title || entry.process || entry.path || entry.url || '',
+				color: stringToColor(entry.process),
+				entry
+			});
+		}
+		return rects;
+	}
 
-            rects.push({
-                x,
-                y,
-                width,
-                height,
-                label: entry.title || entry.process || entry.path || entry.url || '',
-                color: stringToColor(entry.process),
-                entry
-            });
-        }
-        return rects;
-    }
-
-    function getProcessRects() {
+    let processNameToIndex = $derived.by(() => {
         // Group the processes by name
         let processNames = new Set();
         for (let entry of processEntries) {
@@ -179,335 +184,455 @@
         }
 
         // Map each set to an index
+        /** @type {Record<string, number>}*/
         const processNameToIndex = {};
         let index = 0;
         for (let name of processNames) {
             processNameToIndex[name] = index++;
         }
-
-
-        /** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry}[]} */
-        const rects = [];
-        for (let i = 0; i < processEntries.length; i++) {
-            const entry = processEntries[i];
-            const start = entry.start;
-            const end = entry.end;
-
-            // If the times are out of bounds for displayed hours, skip
-            if (end.getTime() % dayms < displayedHourStart || start.getTime() % dayms> displayedHourEnd) {
-                continue;
-            }
-
-            const dayIndex = getDayIndex(start);
-
-            // Calculate rectangle position and size
-            const colWidth = 0.5 * (svgWidth - labelWidth) / dateRange.length;
-            
-            const x = labelWidth + (dayIndex + 0.5) * ((svgWidth - labelWidth) / dateRange.length) + 
-                (colWidth / processNames.size) * processNameToIndex[entry.name];
-            const y = timeAxis(start.getTime() % dayms);
-            const width = colWidth / processNames.size;
-            const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
-
-            rects.push({
-                x,
-                y,
-                width,
-                height,
-                label: entry.name || '',
-                color: stringToColor(entry.name),
-                entry
-            });
-        }
-
-        return rects;
-    }
-
-    // D3 Y-axis setup
-    let timeAxis = $derived.by(() => {
-        return d3.scaleLinear()
-            .domain([displayedHourStart, displayedHourEnd])
-            .range([labelHeight, svgHeight - labelHeight]);
+        return processNameToIndex;
     });
 
-    let hourTicks = $derived.by(() => {
-        return hours.map(h => {
-            let date = new Date();
-            date.setHours((h - timeZoneOffset)/hourms, 0, 0, 0);
-            return {
-                value: h,
-                label: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-        });
-    });
 
-    let isMiddlePanning = false;
-    let panStart = {clientY:0, timeAxisValue: 0};
+	function getProcessRects() {
+		/** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry, cpuGraph:string}[]} */
+		const rects = [];
+		for (let i = 0; i < processEntries.length; i++) {
+			const entry = processEntries[i];
+			const start = entry.start;
+			const end = entry.end;
 
-    function handleMouseDown(event) {
-        if (event.button === 1) { // Middle mouse button
-            isMiddlePanning = true;
+			// If the times are out of bounds for displayed hours, skip
+			if (
+				end.getTime() % dayms < displayedHourStart ||
+				start.getTime() % dayms > displayedHourEnd
+			) {
+				continue;
+			}
+
+			const dayIndex = getDayIndex(start);
+
+			// Calculate rectangle position and size
+			const colWidth = (0.5 * (svgWidth - labelWidth)) / dateRange.length;
+
+			const x =
+				labelWidth +
+				(dayIndex + 0.5) * ((svgWidth - labelWidth) / dateRange.length) +
+				(colWidth / Object.values(processNameToIndex).length) * processNameToIndex[entry.name];
+			const y = timeAxis(start.getTime() % dayms);
+			const width = colWidth / Object.values(processNameToIndex).length - 4;
+			const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
+
+
+            let secondsBetween = (end.getTime() - start.getTime());
+            secondsBetween /= 1000;
+
+            // Aggregate the cpu usage into buckets based on the height of the rectangle
+            let cpuBuckets = d3.bin()
+                .value((d,i) => new Date(entry.timestamps[i]).getTime() % dayms)
+                .domain([start.getTime() % dayms, end.getTime() % dayms])
+                .thresholds(Math.min(height/2,secondsBetween/2))(entry.cpu)
+                .map((bucket) => 
+                    ({mean: d3.mean(bucket),x0: bucket.x0, x1: bucket.x1})
+                );
             
-            panStart.clientY = event.clientY;
-            panStart.timeAxisValue = timeAxis.invert(event.clientY - container.getBoundingClientRect().top);
+            let area = d3.area()
+                .y(d=> timeAxis((d.x0+d.x1)/2))
+                .x0(0)
+                .x1(d=>d.mean * width/100)
+                .defined(d=>!isNaN(d.mean));
 
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
-            event.preventDefault();
-        }
-    }
+			rects.push({
+				x,
+				y,
+				width,
+				height,
+				label: entry.name || '',
+				color: stringToColor(entry.name),
+				entry,
 
-    function handleMouseMove(event) {
-        if (!isMiddlePanning) return;
-        
-        const deltaY = event.clientY - panStart.clientY;
-        panStart.clientY = event.clientY;
-        
-        // Calculate how many ms to pan based on svgHeight
-        const range = displayedHourEnd - displayedHourStart;
-        const msPerPixel = (displayedHourEnd - displayedHourStart) / (svgHeight - 2 * labelHeight);
-        const msDelta = -deltaY * msPerPixel;
+                cpuGraph: area(cpuBuckets),
+			});
+		}
 
-        if(displayedHourStart + msDelta < 0 + timeZoneOffset) {
-            displayedHourStart = 0 + timeZoneOffset;
-            displayedHourEnd = displayedHourStart + range; // Keep the range the same
-            return;
-        }
-        if(displayedHourEnd + msDelta > 24 * hourms + timeZoneOffset) {
-            displayedHourEnd = 24 * hourms + timeZoneOffset;
-            displayedHourStart = displayedHourEnd - range; // Keep the range the same
-            return;
-        }
+		return rects;
+	}
 
-        displayedHourStart += msDelta;
-        displayedHourEnd += msDelta;
-    }
+	// D3 Y-axis setup
+	let timeAxis = $derived.by(() => {
+		return d3
+			.scaleLinear()
+			.domain([displayedHourStart, displayedHourEnd])
+			.range([labelHeight, svgHeight - labelHeight]);
+	});
 
-    function handleMouseUp(event) {
-        if (event.button === 1 && isMiddlePanning) {
-            isMiddlePanning = false;
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        }
-    }
+	let hourTicks = $derived.by(() => {
+		return hours.map((h) => {
+			let date = new Date();
+			date.setHours((h - timeZoneOffset) / hourms, 0, 0, 0);
+			return {
+				value: h,
+				label: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+			};
+		});
+	});
 
-    // Tooltip state
-    let tooltip = $state({ visible: false, x: 0, y: 0, entry: null });
+	let isMiddlePanning = false;
+	let panStart = { clientY: 0, timeAxisValue: 0 };
 
-    function findClosestEntry(mouseX, mouseY) {
-        if (!container) return null;
-        // Convert mouseX, mouseY to day and ms-of-day
-        const rect = container.getBoundingClientRect();
-        const svgX = mouseX - rect.left;
-        const svgY = mouseY - rect.top;
-        // Find day index
-        const dayWidth = (svgWidth - labelWidth) / dateRange.length;
-        let dayIdx = Math.floor((svgX - labelWidth) / dayWidth);
-        if (dayIdx < 0) dayIdx = 0;
-        if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
+	/**
+	 * Handles mouse down events to start panning the calendar view.
+	 * @param {MouseEvent} event - The mouse event.
+	 */
+	function handleMouseDown(event) {
+		if (event.button === 1) {
+			// Middle mouse button
+			isMiddlePanning = true;
 
-        
+			panStart.clientY = event.clientY;
+			panStart.timeAxisValue = timeAxis.invert(
+				event.clientY - container.getBoundingClientRect().top
+			);
 
-        // Find ms-of-day from y
-        let msOfDay = timeAxis.invert(svgY);
-        // Find closest entry in that day
-        let minDist = Infinity;
-        let closest = null;
-        for (let entry of entries) {
-            const start = new Date(entry.timestamp);
-            const entryDayIdx = getDayIndex(start);
-            if (entryDayIdx !== dayIdx) continue;
-            const entryMs = start.getTime() % dayms;
-            const dist = Math.abs(entryMs - msOfDay);
-            if (dist < minDist) {
-                minDist = dist;
+			window.addEventListener('mousemove', handleMouseMove);
+			window.addEventListener('mouseup', handleMouseUp);
+			event.preventDefault();
+		}
+	}
+
+	/**
+	 * Handles mouse move events to pan the calendar view.
+	 * @param {MouseEvent} event - The mouse event.
+	 */
+	function handleMouseMove(event) {
+		if (!isMiddlePanning) return;
+
+		const deltaY = event.clientY - panStart.clientY;
+		panStart.clientY = event.clientY;
+
+		// Calculate how many ms to pan based on svgHeight
+		const range = displayedHourEnd - displayedHourStart;
+		const msPerPixel = (displayedHourEnd - displayedHourStart) / (svgHeight - 2 * labelHeight);
+		const msDelta = -deltaY * msPerPixel;
+
+		if (displayedHourStart + msDelta < 0 + timeZoneOffset) {
+			displayedHourStart = 0 + timeZoneOffset;
+			displayedHourEnd = displayedHourStart + range; // Keep the range the same
+			return;
+		}
+		if (displayedHourEnd + msDelta > 24 * hourms + timeZoneOffset) {
+			displayedHourEnd = 24 * hourms + timeZoneOffset;
+			displayedHourStart = displayedHourEnd - range; // Keep the range the same
+			return;
+		}
+
+		displayedHourStart += msDelta;
+		displayedHourEnd += msDelta;
+	}
+
+	/**
+	 * Handles mouse up events to stop panning.
+	 * @param {MouseEvent} event - The mouse event.
+	 */
+	function handleMouseUp(event) {
+		if (event.button === 1 && isMiddlePanning) {
+			isMiddlePanning = false;
+			window.removeEventListener('mousemove', handleMouseMove);
+			window.removeEventListener('mouseup', handleMouseUp);
+		}
+	}
+
+	// Tooltip state
+	let tooltip = $state({ visible: false, x: 0, align:'left', y: 0, entry: null });
+
+	/**
+	 * Finds the closest entry to the mouse position.
+	 * @param {number} mouseX - The x-coordinate of the mouse.
+	 * @param {number} mouseY - The y-coordinate of the mouse.
+	 * @returns {Entry|ProcessEntry|null} The closest entry or null if none found.
+	 */
+	function findClosestEntry(mouseX, mouseY) {
+		if (!container) return null;
+		// Convert mouseX, mouseY to day and ms-of-day
+		const rect = container.getBoundingClientRect();
+		const svgX = mouseX - rect.left;
+		const svgY = mouseY - rect.top;
+		// Find day index
+		const dayWidth = (svgWidth - labelWidth) / dateRange.length;
+		let dayIdx = Math.floor((svgX - labelWidth) / dayWidth);
+		if (dayIdx < 0) dayIdx = 0;
+		if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
+
+		// Find ms-of-day from y
+		let msOfDay = timeAxis.invert(svgY);
+		// Find closest entry in that day
+		let minDist = Infinity;
+		let closest = null;
+
+		const dayXStart = labelWidth + dayIdx * dayWidth;
+
+		const dayXMid = dayXStart + dayWidth / 2;
+		// If mouseX is outside the day range, return null
+		if (svgX <= dayXMid) {
+			for (let entry of entries) {
+				const start = new Date(entry.time);
+                const end = entry.end ? new Date(entry.end) : new Date(start);
+				const entryDayIdx = getDayIndex(start);
+				if (entryDayIdx !== dayIdx) continue;
+
+				const entryMs = start.getTime() % dayms;
+                const entryEndMs = end.getTime() % dayms;
+                if (msOfDay < entryMs || msOfDay > entryEndMs) continue;
+
                 closest = entry;
+			}
+			return closest;
+		} else {
+            const dayXEnd = dayXStart + dayWidth;
+            
+            const processNameIndex = Math.floor(Object.values(processNameToIndex).length * (svgX - dayXMid) / (dayXEnd - dayXMid));
+            const processName = Object.entries(processNameToIndex).find(([name, index]) => index === processNameIndex)?.[0];
+
+            // Search process entries
+            for (let entry of processEntries) {
+                if (entry.name !== processName) continue;
+
+                const start = entry.start;
+                const end = entry.end;
+                const entryDayIdx = getDayIndex(start);
+                if (entryDayIdx !== dayIdx) continue;
+
+                const entryMs = start.getTime() % dayms;
+                const entryEndMs = end.getTime() % dayms;
+                if( msOfDay < entryMs || msOfDay > entryEndMs) continue;
+                
+                let n = entry.timestamps.findIndex(ts => {
+                    const tsMs = new Date(ts).getTime() % dayms;
+                    return tsMs >= msOfDay;
+                });
+
+                let e = {...entry, time:entry.timestamps[n], cpu:entry.cpu[n], memory: entry.memory[n]};
+
+                return e;
             }
         }
-        return closest;
-    }
+	}
 
-    function handleMouseMoveTooltip(event) {
-        const entry = findClosestEntry(event.clientX, event.clientY);
-
-        if (entry) {
-            let x = getDayIndex(new Date(entry.timestamp)) * ((svgWidth - labelWidth) / dateRange.length) + labelWidth;
-            tooltip = {
-                visible: true,
-                x,
-                y: event.clientY + 12,
-                entry
-            };
-        } else {
-            tooltip = { visible: false, x: 0, y: 0, entry: null };
-        }
-    }
-
-    function handleMouseLeaveTooltip() {
-        tooltip = { visible: false, x: 0, y: 0, entry: null };
-    }
-
-    // Log entries when they change
-    $effect(() => {
-        console.log('Entries changed:', $state.snapshot(entries));
+    // Create a number formatter for CPU and memory
+    const cpuFormatter = new Intl.NumberFormat(undefined, {
+        style: 'decimal',
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 0
     });
+    const memoryFormatter = new Intl.NumberFormat(undefined, {
+        style: 'decimal',
+        notation: 'compact',
+        minimumFractionDigits: 2
+    });
+
+	/**
+	 * Handles mouse move events to show tooltip with entry details.
+	 * @param {MouseEvent} event - The mouse event.
+	 */
+	function handleMouseMoveTooltip(event) {
+		const entry = findClosestEntry(event.clientX, event.clientY);
+
+        let dayIndex = getDayIndex(new Date(entry?.time ?? entry?.timestamps[0]));
+
+        let type = 'focused';
+        if(entry && entry.cpu) {
+            type = 'process';
+        }
+
+        let content = null;
+        if(entry) {
+            content = {
+                title: entry.title ?? entry.name,
+                subtitle: entry.process || `${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter.format(entry.memory)} bytes`,
+                time: entry.time,
+            };
+        }
+
+		if (entry) {
+			let x =
+				((type == 'focused' ? dayIndex : 6-dayIndex)) * ((svgWidth - labelWidth) / dateRange.length) +
+				(type=='focused'?labelWidth:0);
+			tooltip = {
+				visible: true,
+				x,
+                align: type == 'focused' ? 'left' : 'right',
+				y: event.clientY + 12,
+				content
+			};
+		} else {
+			tooltip = { visible: false, x: 0, y: 0, content };
+		}
+	}
+
+	function handleMouseLeaveTooltip() {
+		tooltip = { visible: false, x: 0, y: 0, entry: null };
+	}
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
-    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} role='graphics-document'
-        onmousemove={handleMouseMoveTooltip} onmouseleave={handleMouseLeaveTooltip}>
-        <g transform={`translate(${labelWidth},0)`}></g>
-        <!-- Day labels -->
-        <g>
-            <rect x="0" y="0" width={labelWidth} height={labelHeight} fill="#f8f8f8" />
-            {#each dateRange as d, i}
-                <rect
-                    x={labelWidth + i * ((svgWidth - labelWidth) / dateRange.length)}
-                    y="0"
-                    width={(svgWidth - labelWidth) / dateRange.length}
-                    height={labelHeight}
-                    fill="#f8f8f8"
-                    stroke="#ddd"
-                />
-                <text
-                    x={labelWidth + i * ((svgWidth - labelWidth) / dateRange.length) + ((svgWidth - labelWidth) / dateRange.length) / 2}
-                    y={labelHeight / 2 + 7}
-                    text-anchor="middle"
-                    font-size="14"
-                    fill="#333"
-                >
-                    {d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })}
-                </text>
-            {/each}
-        </g>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<svg
+		style="width:100%;height:100%;"
+		onwheel={handleScroll}
+		onmousedown={handleMouseDown}
+		onmousemove={handleMouseMoveTooltip}
+		onmouseleave={handleMouseLeaveTooltip}
+	>
+		<g transform={`translate(${labelWidth},0)`}></g>
+		<!-- Day labels -->
+		<g>
+			<rect x="0" y="0" width={labelWidth} height={labelHeight} fill="#f8f8f8" />
+			{#each dateRange as d, i}
+				<rect
+					x={labelWidth + i * ((svgWidth - labelWidth) / dateRange.length)}
+					y="0"
+					width={(svgWidth - labelWidth) / dateRange.length}
+					height={labelHeight}
+					fill="#f8f8f8"
+					stroke="#ddd"
+				/>
+				<text
+					x={labelWidth +
+						i * ((svgWidth - labelWidth) / dateRange.length) +
+						(svgWidth - labelWidth) / dateRange.length / 2}
+					y={labelHeight / 2 + 7}
+					text-anchor="middle"
+					font-size="14"
+					fill="#333"
+				>
+					{d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })}
+				</text>
+			{/each}
+		</g>
 
-        <!-- Hour labels and grid -->
-        <g class="calendar-grid">
-            {#each hourTicks as h, i (h.value)}
-                <g transform={`translate(0, ${timeAxis(h.value)})`}>
-                    <line
-                        x1={labelWidth}
-                        y1="0"
-                        x2={svgWidth}
-                        y2="0"
-                        stroke="#ddd"
-                        stroke-width="1"
-                    />
-                    <text
-                        x={labelWidth - 5}
-                        y="4"
-                        text-anchor="end"
-                        font-size="12"
-                        fill="#555"
-                    >
-                        {h.label}
-                    </text>
-                </g>
-            {/each}
-        </g>
+		<!-- Hour labels and grid -->
+		<g class="calendar-grid">
+			{#each hourTicks as h, i (h.value)}
+				<g transform={`translate(0, ${timeAxis(h.value)})`}>
+					<line x1={labelWidth} y1="0" x2={svgWidth} y2="0" stroke="#ddd" stroke-width="1" />
+					<text x={labelWidth - 5} y="4" text-anchor="end" font-size="12" fill="#555">
+						{h.label}
+					</text>
+				</g>
+			{/each}
+		</g>
 
-        
-        <!-- Process Entries -->
-        <g class="process-entries">
-            {#each getProcessRects() as rect}
-                {#if rect.height > 1}
-                <rect
-                    x={rect.x + 2}
-                    y={rect.y + 2}
-                    width={rect.width}
-                    height={rect.height}
-                    fill={rect.color || "#ffcc80"}
-                    fill-opacity="0.85"
-                />
-                {#if rect.label && rect.height > 20}
-                    <text
-                        x={rect.x+2}
-                        y={rect.y+2}
-                        dy={13}
-                        text-anchor="start"
-                        font-size="13"
-                        fill="#222"
-                        pointer-events="none"
-                    >
-                        {rect.label}
-                    </text>
-                {/if}
-                {/if}
-            {/each}
-        </g>
+		<!-- Process Entries -->
+		<g class="process-entries">
+			{#each getProcessRects() as rect}
+				{#if rect.height > 1}
+					<rect
+						x={rect.x + 2}
+						y={rect.y + 2}
+						width={rect.width}
+						height={rect.height}
+						fill={rect.color || '#ffcc80'}
+						fill-opacity="0.3"
+					/>
+                    <path
+                        d={rect.cpuGraph}
+                        fill={rect.color || '#ff9800'}
+                        transform={`translate(${rect.x + 2}, 0)`}
+                        />
+					{#if rect.label && rect.height > 20}
+						<text
+							x={rect.x + 2}
+							y={rect.y + 2}
+							dy={8}
+							text-anchor="start"
+							font-size="8"
+							fill="#222"
+							pointer-events="none"
+						>
+							{rect.label.slice(0, rect.width*2/8)}{#if rect.label.length > rect.width*2/8}...{/if}
+						</text>
+					{/if}
+				{/if}
+			{/each}
+		</g>
 
-        <!-- Entries -->
-        <g class="entries">
-            {#each getRects() as rect}
-                {#if rect.height > 1}
-                <rect
-                    x={rect.x + 2}
-                    y={rect.y + 2}
-                    width={rect.width}
-                    height={rect.height}
-                    fill={rect.color || "#90caf9"}
-                    fill-opacity="0.85"
-                />
-                {#if rect.label && rect.height > 20}
-                    <text
-                        x={rect.x+2}
-                        y={rect.y+2}
-                        dy={13}
-                        text-anchor="start"
-                        font-size="13"
-                        fill="#222"
-                        pointer-events="none"
-                    >
-                        {rect.label}
-                    </text>
-                {/if}
-                {/if}
-            {/each}
-        </g>
-    </svg>
-    {#if tooltip.visible && tooltip.entry}
-        <div class="calendar-tooltip" style="position:fixed; left:{tooltip.x}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;">
-            <div style="background:#fff; border:1px solid #bbb; border-radius:4px; padding:8px 12px; box-shadow:0 2px 8px #0002; font-size:13px; min-width:180px; max-width:320px;">
-                <div><b>{tooltip.entry.title || tooltip.entry.process || tooltip.entry.path || tooltip.entry.url}</b></div>
-                <div style="color:#666; font-size:12px;">{tooltip.entry.process}</div>
-                <div style="color:#888; font-size:12px;">{new Date(tooltip.entry.timestamp).toLocaleString()}</div>
-                {#if tooltip.entry.url}
-                    <div style="color:#0074d9; font-size:12px; overflow-wrap:anywhere;">{tooltip.entry.url}</div>
-                {/if}
-            </div>
-        </div>
-    {/if}
+		<!-- Entries -->
+		<g class="entries">
+			{#each getRects() as rect}
+				{#if rect.height > 1}
+					<rect
+						x={rect.x + 2}
+						y={rect.y + 2}
+						width={rect.width}
+						height={rect.height}
+						fill={rect.color || '#90caf9'}
+						fill-opacity="0.85"
+					/>
+					{#if rect.label && rect.height > 20}
+						<text
+							x={rect.x + 2}
+							y={rect.y + 2}
+							dy={8}
+							text-anchor="start"
+							font-size="8"
+							fill="#222"
+							pointer-events="none"
+						>
+							{rect.label.slice(0, rect.width*2/8)}{#if rect.label.length > rect.width*2/8}...{/if}
+						</text>
+					{/if}
+				{/if}
+			{/each}
+		</g>
+	</svg>
+	{#if tooltip.visible && tooltip.content}
+		<div
+			class="calendar-tooltip"
+			style="position:fixed; {tooltip.align}:{tooltip.x - 8}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;"
+		>
+			<div
+				style="background:#fff; border:1px solid #bbb; border-radius:4px; padding:8px 12px; box-shadow:0 2px 8px #0002; font-size:13px; min-width:180px; max-width:320px;"
+			>
+				<div>
+					<b>{tooltip.content.title}</b>
+				</div>
+				<div style="color:#666; font-size:12px;">{tooltip.content.subtitle}</div>
+				<div style="color:#888; font-size:12px;">
+					{new Date(tooltip.content.time).toLocaleString()}
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
-    /* Colour for the elements of the calendar */
-    @property --calendar-fg-color {
-        syntax: "<color>";
-        inherits: false;
-        initial-value: #ccc;
-    }
+	/* Colour for the elements of the calendar */
+	@property --calendar-fg-color {
+		syntax: '<color>';
+		inherits: false;
+		initial-value: #ccc;
+	}
 
-    text {
-        font-family: Roboto, sans-serif;
-        user-select: none;
-    }
+	text {
+		font-family: Roboto, sans-serif;
+		user-select: none;
+	}
 
-    .calendar-grid text {
-        fill: var(--calendar-fg-color);
+	.calendar-grid text {
+		fill: var(--calendar-fg-color);
+	}
 
-    }
+	/* Add a transition for translate transforms */
+	svg g {
+		/* transition: transform 0.1s ease-out; */
+	}
 
-    /* Add a transition for translate transforms */
-    svg g {
-        /* transition: transform 0.1s ease-out; */
-    }
+	.calendar-tooltip {
+		pointer-events: none;
+		user-select: none;
+	}
 
-    .calendar-tooltip {
-        pointer-events: none;
-        user-select: none;
-    }
-
-    .calendar-tooltip {
-        font-family: Roboto, sans-serif;
-    }
+	.calendar-tooltip {
+		font-family: Roboto, sans-serif;
+	}
 </style>

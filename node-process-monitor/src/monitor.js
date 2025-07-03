@@ -119,7 +119,7 @@ async function getProcessStates() {
     states[proc.pid] = {
       name: proc.name,
       cpu: proc.cpu,
-      memory: Math.round(proc.mem * totalMemory),
+      memory: Math.round(proc.mem * totalMemory / 100),
       status: proc.state,
       started: proc.started,
       unresponsive: proc.state === "uninterruptible",
