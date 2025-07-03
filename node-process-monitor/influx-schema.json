@@ -1,0 +1,38 @@
+{
+  "objectStore": "file",
+  "dataDir": "./influxdb/data",
+  "tables": [
+    {
+      "database": "focused",
+      "name": "focused",
+      "tags": ["host", "focused_window"],
+      "fields": {
+        "title": "string",
+        "process": "string",
+        "path": "string",
+        "url": "string"
+      }
+    },
+    {
+      "database": "process",
+      "name": "process",
+      "tags": ["host", "name", "pid"],
+      "fields": {
+        "cpu": "float64",
+        "memory": "int64",
+        "status": "string",
+        "started": "string",
+        "unresponsive": "bool"
+      }
+    },
+    {
+      "database": "system",
+      "name": "system",
+      "tags": ["host"],
+      "fields": {
+        "isIdle": "bool",
+        "sleepState": "string"
+      }
+    }
+  ]
+}
