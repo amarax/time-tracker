@@ -28,8 +28,8 @@ export async function GET({ params, url }) {
     const table = TABLES[log];
     const format = url.searchParams.get('format') || 'csv';
 
-    // InfluxQL query for the last 1000 points from the measurement
-    const influxql = `SELECT * FROM "${table}" ORDER BY time DESC LIMIT 1000`;
+    // InfluxQL query for the last 7 days from the measurement
+    const influxql = `SELECT * FROM "${table}" WHERE time > now() - 7d ORDER BY time ASC`;
     const urlObj = new URL(INFLUX_URL);
     urlObj.pathname = '/query';
     urlObj.searchParams.set('db', INFLUX_DB);

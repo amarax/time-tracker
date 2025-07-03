@@ -3,7 +3,7 @@
     import * as d3 from 'd3';
     /**
      * @typedef {Object} Entry
-     * @property {Date} timestamp - ISO string representing the start time of the entry
+     * @property {Date} time - ISO string representing the start time of the entry
      * @property {string} title - Focused window title
      * @property {string} process - Process name
      * @property {string} path - File path of the process
@@ -134,10 +134,10 @@
         const rects = [];
         for (let i = 0; i < entries.length; i++) {
             const entry = entries[i];
-            const start = new Date(entry.timestamp);
+            const start = new Date(entry.time);
             const end = new Date(start);
             if(entries[i + 1]) {
-                end.setTime(new Date(entries[i + 1].timestamp).getTime()); // Use next entry's start time minus 1 ms
+                end.setTime(new Date(entries[i + 1].time).getTime()); // Use next entry's start time minus 1 ms
             } else {
                 continue;
             }
@@ -346,10 +346,15 @@
     function handleMouseLeaveTooltip() {
         tooltip = { visible: false, x: 0, y: 0, entry: null };
     }
+
+    // Log entries when they change
+    $effect(() => {
+        console.log('Entries changed:', $state.snapshot(entries));
+    });
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
-    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} tabindex="0"
+    <svg style="width:100%;height:100%;" onwheel={handleScroll} onmousedown={handleMouseDown} role='graphics-document'
         onmousemove={handleMouseMoveTooltip} onmouseleave={handleMouseLeaveTooltip}>
         <g transform={`translate(${labelWidth},0)`}></g>
         <!-- Day labels -->

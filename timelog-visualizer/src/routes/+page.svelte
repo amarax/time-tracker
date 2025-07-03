@@ -28,7 +28,7 @@
     async function load(logPath) {
         const response = await fetch(`/logs/${logPath}`);
         const text = await response.text();
-        const lines = text.split('\n').filter(Boolean);
+        const lines = text.split('\n');
         const header = lines.shift().split(',');
         const entries = lines.map(line => {
             // Unescape values that start and end with quotes
@@ -44,10 +44,10 @@
                 entry[key] = values[i];
             });
             return entry;
-        }).filter(entry => Object.values(entry).every(v => v !== undefined && v !== ''))
+        })
         .map(entry => ({
             ...entry,
-            timestamp: new Date(entry.timestamp),
+            time: new Date(entry.time),
         }));
 
         if(logPath === "process") {
@@ -72,7 +72,7 @@
 
     function consolidateProcessEntries(entries) {
         function key(entry) {
-            return `${entry.pid}-${new Date(entry.started).getTime()}-${new Date(entry.timestamp).getDay()}`;
+            return `${entry.pid}-${new Date(entry.started).getTime()}-${new Date(entry.time).getDay()}`;
         }
 
         const consolidated = {};
@@ -80,20 +80,20 @@
             let lastEntry = consolidated[key(e)];
             if (lastEntry) {
                 // If the last entry has the same PID, update it
-                lastEntry.timestamps.push(new Date(e.timestamp));
+                lastEntry.timestamps.push(new Date(e.time));
                 lastEntry.cpu.push(e.cpu);
                 lastEntry.memory.push(e.memory);
-                lastEntry.end = new Date(e.timestamp);
+                lastEntry.end = new Date(e.time);
             } else {
                 // Otherwise, create a new entry
                 consolidated[key(e)] = {
                     pid: e.pid,
                     name: e.name,
-                    timestamps: [new Date(e.timestamp)],
+                    timestamps: [new Date(e.time)],
                     cpu: [e.cpu],
                     memory: [e.memory],
-                    start: new Date(e.timestamp),
-                    end: new Date(e.timestamp),
+                    start: new Date(e.time),
+                    end: new Date(e.time),
                 };
             }
         }
@@ -107,9 +107,10 @@
     // Set the start date to the Monday of the current week
     function setStartDateToMonday(date) {
         const day = date.getDay();
-        const diff = (day === 0 ? -6 : 1) - day;
-        let newDate = new Date()
-        newDate.setDate(date.getDate() + diff);
+        // Calculate how many days to subtract to get to Monday (0 for Monday, 1 for Tuesday, ..., 6 for Sunday)
+        const diff = (day + 6) % 7;
+        let newDate = new Date(date);
+        newDate.setDate(date.getDate() - diff);
         newDate.setHours(0, 0, 0, 0);
         return newDate;
     }
@@ -121,7 +122,7 @@
     }
 
     let filteredEntries = $derived(entries?.filter(entry => {
-        const entryDate = new Date(entry.timestamp);
+        const entryDate = new Date(entry.time);
         return entryDate >= startDate && entryDate < new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
     }));
 

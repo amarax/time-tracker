@@ -5,7 +5,10 @@
     {
       "database": "process-monitor",
       "name": "focused",
-      "tags": ["title","process", "path", "url"]
+      "tags": ["title","process", "path", "url"],
+      "fields": {
+        "dummy": "int64"
+      }
     },
     {
       "database": "process-monitor",

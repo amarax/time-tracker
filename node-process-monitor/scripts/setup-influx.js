@@ -12,6 +12,30 @@ const zip =
   "influxdb3-core-3.10-windows-amd64.zip";
 import schema from "../influx-schema.json" with { type: 'json' };
 
+function tableExists(db, table) {
+  // Query the list of tables in the database
+  const result = spawnSync(bin + "", ["show", "tables", "--database", db], { encoding: "utf-8" });
+  if (result.status !== 0) return false;
+  return result.stdout && result.stdout.includes(table);
+}
+
+function getTableSchema(db, table) {
+  // Query the schema for the table
+  const result = spawnSync(bin + "", ["describe", "table", table, "--database", db], { encoding: "utf-8" });
+  if (result.status !== 0) return null;
+  // Parse output to get fields and tags
+  // Output format: columns: name, type, tag/field
+  const lines = result.stdout.split("\n").filter(Boolean);
+  const tags = [];
+  const fields = {};
+  for (const line of lines) {
+    const [name, type, kind] = line.split(/\s+/);
+    if (kind === "tag") tags.push(name);
+    if (kind === "field") fields[name] = type;
+  }
+  return { tags, fields };
+}
+
 function setup() {
   // ------------------------------------------------------------------
   // 1) download binary once
@@ -63,6 +87,28 @@ function setup() {
   dbs.forEach((db) => run(["create", "database", db])); // :contentReference[oaicite:1]{index=1}
 
   for (const t of schema.tables) {
+    if (tableExists(t.database, t.name)) {
+      // Table exists, check schema and alter if needed
+      const current = getTableSchema(t.database, t.name);
+      // Add missing tags
+      if (t.tags) {
+        for (const tag of t.tags) {
+          if (!current.tags.includes(tag)) {
+            run(["alter", "table", t.name, "add", "tag", tag, "--database", t.database]);
+          }
+        }
+      }
+      // Add missing fields
+      if (t.fields) {
+        for (const [k, v] of Object.entries(t.fields)) {
+          if (!current.fields[k]) {
+            run(["alter", "table", t.name, "add", "field", `${k}:${v}`, "--database", t.database]);
+          }
+        }
+      }
+      continue;
+    }
+    // Table does not exist, create as before
     let cmd = [
       "create",
       "table",
