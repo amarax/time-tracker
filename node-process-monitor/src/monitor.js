@@ -7,12 +7,19 @@ import si from "systeminformation";
 import dotenv from "dotenv";
 import desktopIdle from "desktop-idle";
 
+import { InfluxDB, Point } from '@influxdata/influxdb-client'
+
+const INFLUX_URL = 'http://127.0.0.1:8086'
+const INFLUX_TOKEN = '' // blank is fine when --without-auth is set
+const INFLUX_ORG = ''   // not used with --without-auth, but required by client
+const INFLUX_BUCKET = 'sys'
+
+const influxDB = new InfluxDB({ url: INFLUX_URL, token: INFLUX_TOKEN })
+const writeApi = influxDB.getWriteApi(INFLUX_ORG, INFLUX_BUCKET, 'ns')
+
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
 const LOG_DIR = path.join(process.cwd(), "logs");
-const FOCUSED_LOG_FILE = path.join(LOG_DIR, "focused.csv");
-const PROCESS_LOG_FILE = path.join(LOG_DIR, "process.csv");
-const SYSTEM_LOG_FILE = path.join(LOG_DIR, "system.csv");
 const POLL_INTERVAL = 1000; // 1 second for demo, change to 60000 for 1 min
 const PROCESS_SUBSTRINGS =
   process.env.MONITOR_PROCESS_SUBSTRINGS?.split(",")
@@ -21,44 +28,53 @@ const PROCESS_SUBSTRINGS =
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
-// Add headers if files do not exist
-
-function logFocusedWindow(focused) {
+// Write focused window info to InfluxDB
+async function logFocusedWindow(focused) {
   if (!focused) return;
-  if (!fs.existsSync(FOCUSED_LOG_FILE)) {
-    fs.writeFileSync(
-      FOCUSED_LOG_FILE,
-      "timestamp,title,process,path,url" + os.EOL
-    );
+  try {
+    const pt = new Point("focused_window")
+      .tag("process", focused.process || "")
+      .tag("path", focused.path || "")
+      .tag("url", focused.url || "")
+      .stringField("title", focused.title || "")
+      .timestamp(new Date());
+    writeApi.writePoint(pt);
+  } catch (e) {
+    console.error("Failed to write focused window to InfluxDB:", e);
   }
-
-  // Always stringify and escape all fields to avoid CSV issues
-  const line = [
-    new Date().toISOString(),
-    focused.title ? '"' + String(focused.title).replace(/"/g, '""') + '"' : "",
-    focused.process
-      ? '"' + String(focused.process).replace(/"/g, '""') + '"'
-      : "",
-    focused.path ? '"' + String(focused.path).replace(/"/g, '""') + '"' : "",
-    focused.url ? '"' + String(focused.url).replace(/"/g, '""') + '"' : "",
-  ].join(",");
-  fs.appendFileSync(FOCUSED_LOG_FILE, line + os.EOL);
 }
 
-function logProcessStates(processStates) {
-  if (!fs.existsSync(PROCESS_LOG_FILE)) {
-    fs.writeFileSync(
-      PROCESS_LOG_FILE,
-      "timestamp,pid,name,cpu,memory,status,started,unresponsive" + os.EOL
-    );
-  }
-
+// Write process states to InfluxDB
+async function logProcessStates(processStates) {
   for (const pid in processStates) {
     const proc = processStates[pid];
-    const line = `${new Date().toISOString()},${pid},${proc.name},${proc.cpu},${
-      proc.memory
-    },${proc.status},${proc.started},${proc.unresponsive}`;
-    fs.appendFileSync(PROCESS_LOG_FILE, line + os.EOL);
+    try {
+      const pt = new Point("process_state")
+        .tag("pid", String(pid))
+        .tag("name", proc.name || "")
+        .tag("status", proc.status || "")
+        .floatField("cpu", proc.cpu)
+        .intField("memory", proc.memory)
+        .stringField("started", String(proc.started))
+        .intField("unresponsive", proc.unresponsive ? 1 : 0)
+        .timestamp(new Date());
+      writeApi.writePoint(pt);
+    } catch (e) {
+      console.error("Failed to write process state to InfluxDB:", e);
+    }
+  }
+}
+
+// Write system state to InfluxDB
+async function logSystemState(isIdle, sleepState, customTimestamp) {
+  try {
+    const pt = new Point("system_state")
+      .intField("isIdle", isIdle ? 1 : 0)
+      .intField("sleepState", sleepState ? 1 : 0)
+      .timestamp(customTimestamp ? new Date(customTimestamp) : new Date());
+    writeApi.writePoint(pt);
+  } catch (e) {
+    console.error("Failed to write system state to InfluxDB:", e);
   }
 }
 
@@ -119,47 +135,35 @@ async function poll() {
     if (now - lastPollTime > POLL_INTERVAL * 2) {
       sleepState = true;
     }
-
-    // If sleep detected and not already in sleep, log sleep start
     if (sleepState && !lastSleepState) {
-      // Log sleep start (lastPollTime is when sleep started)
-      logSystemState(lastIdleState, 'sleep_start', new Date(lastPollTime).toISOString());
+      await logSystemState(lastIdleState, 'sleep_start', new Date(lastPollTime).toISOString());
       lastSleepStart = lastPollTime;
     }
-    // If waking up from sleep, log sleep stop (now)
     if (!sleepState && lastSleepState && lastSleepStart) {
-      logSystemState(lastIdleState, 'sleep_stop', new Date(now).toISOString());
+      await logSystemState(lastIdleState, 'sleep_stop', new Date(now).toISOString());
       lastSleepStart = null;
     }
     lastPollTime = now;
-
     const focused = await getFocusedWindow();
     const idleSeconds = desktopIdle.getIdleTime();
     const idleState = idleSeconds >= IDLE_THRESHOLD;
     const processStates = await getProcessStates();
-
-    // Track focused window changes
     if (JSON.stringify(focused) !== JSON.stringify(lastFocused)) {
-      logFocusedWindow(focused);
+      await logFocusedWindow(focused);
       lastFocused = focused;
     }
-
-    // Track system (idle/sleep) changes
     if (idleState !== lastIdleState || sleepState !== lastSleepState) {
       if (!sleepState && !lastSleepState) {
-        // Only log normal state if not a sleep transition
-        logSystemState(idleState, sleepState);
+        await logSystemState(idleState, sleepState);
       }
       lastIdleState = idleState;
       lastSleepState = sleepState;
     }
-    // Track process state changes per PID
     for (const pid in processStates) {
       const prev = lastProcessStates[pid];
       const curr = processStates[pid];
       if (!prev || JSON.stringify(prev) !== JSON.stringify(curr)) {
-        // Only log if new or changed
-        logProcessStates({ [pid]: curr });
+        await logProcessStates({ [pid]: curr });
       }
     }
     lastProcessStates = processStates;
@@ -168,14 +172,16 @@ async function poll() {
   }
 }
 
-
-function logSystemState(isIdle, sleepState, customTimestamp) {
-  if (!fs.existsSync(SYSTEM_LOG_FILE)) {
-    fs.writeFileSync(SYSTEM_LOG_FILE, "timestamp,isIdle,sleepState" + os.EOL);
+// Ensure data is flushed on exit
+process.on('SIGINT', async () => {
+  try {
+    await writeApi.close();
+    console.log('InfluxDB writeApi closed.');
+  } catch (e) {
+    console.error('Error closing InfluxDB writeApi:', e);
   }
-  const line = `${customTimestamp || new Date().toISOString()},${isIdle},${sleepState}`;
-  fs.appendFileSync(SYSTEM_LOG_FILE, line + os.EOL);
-}
+  process.exit();
+});
 
 if (process.env.MONITOR_CHILD === "1" || !process.env.MONITOR_CHILD) {
   setInterval(() => poll(), POLL_INTERVAL);

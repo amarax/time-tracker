@@ -26,7 +26,7 @@ function setup() {
     const downloadCmd = `curl -L -o "${influxZip}" "${zip}"`;
     const extractCmd = `tar -xf ${influxZip} -C ${binDir}`;
     // Download
-    // spawnSync("cmd.exe", ["/c", downloadCmd], { stdio: "inherit" });
+    spawnSync("cmd.exe", ["/c", downloadCmd], { stdio: "inherit" });
     // Extract
     console.log(extractCmd);
     spawnSync("cmd.exe", ["/c", extractCmd], { stdio: "inherit" });
@@ -47,14 +47,14 @@ function setup() {
 
   // common CLI flags (file store, no auth, local data dir)
   const common = [
-    "--object-store",
-    schema.objectStore,
-    "--data-dir",
-    schema.dataDir,
-    "--without-auth", // open server ✔ :contentReference[oaicite:0]{index=0}
+    // "--object-store",
+    // schema.objectStore,
+    // "--data-dir",
+    // schema.dataDir,
+    // "--without-auth", // open server ✔ :contentReference[oaicite:0]{index=0}
   ];
   const run = (args) =>
-    spawnSync(bin, args.concat(common), { stdio: "inherit" });
+    spawnSync(bin + "", args.concat(common), { stdio: "inherit" });
 
   // ------------------------------------------------------------------
   // 3) create databases & tables
@@ -63,21 +63,24 @@ function setup() {
   dbs.forEach((db) => run(["create", "database", db])); // :contentReference[oaicite:1]{index=1}
 
   for (const t of schema.tables) {
-    const tagList = t.tags.join(",");
-    const fieldPairs = Object.entries(t.fields)
-      .map(([k, v]) => `${k}:${v}`)
-      .join(",");
-    run([
+    let cmd = [
       "create",
       "table",
       t.name,
       "--database",
-      t.database,
-      "--tags",
-      tagList,
-      "--fields",
-      fieldPairs,
-    ]); // :contentReference[oaicite:2]{index=2}
+      t.database
+    ]
+    if(t.tags) {
+      const tagList = t.tags.join(",");
+      cmd = [...cmd, "--tags", tagList];
+    }
+    if(t.fields) {
+      const fieldPairs = Object.entries(t.fields)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",");
+      cmd = [...cmd, "--fields", fieldPairs];
+    }
+    run(cmd); // :contentReference[oaicite:2]{index=2}
   }
 
   fs.writeFileSync(stamp, "bootstrap ok");

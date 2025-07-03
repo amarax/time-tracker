@@ -3,35 +3,26 @@
   "dataDir": "./influxdb/data",
   "tables": [
     {
-      "database": "focused",
+      "database": "process-monitor",
       "name": "focused",
-      "tags": ["host", "focused_window"],
-      "fields": {
-        "title": "string",
-        "process": "string",
-        "path": "string",
-        "url": "string"
-      }
+      "tags": ["title","process", "path", "url"]
     },
     {
-      "database": "process",
+      "database": "process-monitor",
       "name": "process",
-      "tags": ["host", "name", "pid"],
+      "tags": ["name", "pid", "status", "started"],
       "fields": {
         "cpu": "float64",
         "memory": "int64",
-        "status": "string",
-        "started": "string",
         "unresponsive": "bool"
       }
     },
     {
-      "database": "system",
+      "database": "process-monitor",
       "name": "system",
-      "tags": ["host"],
+      "tags": ["sleepState"],
       "fields": {
-        "isIdle": "bool",
-        "sleepState": "string"
+        "isIdle": "bool"
       }
     }
   ]
