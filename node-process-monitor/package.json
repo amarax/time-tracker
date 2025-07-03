@@ -9,7 +9,7 @@
     "influx": "influxdb\\bin\\influxdb3.exe serve  --without-auth --object-store file --data-dir influxdb\\data --node-id dev --http-bind 127.0.0.1:8086"
   },
   "dependencies": {
-    "@influxdata/influxdb-client": "^1.35.0",
+    "@influxdata/influxdb3-client": "^1.2.0",
     "@paymoapp/real-idle": "^1.1.1",
     "chokidar": "^4.0.3",
     "concurrently": "^9.2.0",

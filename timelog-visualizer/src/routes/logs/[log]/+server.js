@@ -21,12 +21,12 @@ const influxDB = new InfluxDB({ url: INFLUX_URL });
  * - Queries InfluxDB for the requested log table using InfluxQL.
  */
 export async function GET({ params, url }) {
-    const log = params.log;
+    const log = /** @type {'focused'|'system'|'process'} */ (params.log);
     if (!Object.prototype.hasOwnProperty.call(TABLES, log)) {
         return new Response('Log not found', { status: 404 });
     }
-    const table = TABLES[log === 'focused' ? 'focused' : log === 'system' ? 'system' : 'process'];
-    const format = url.searchParams.get('format') || 'json';
+    const table = TABLES[log];
+    const format = url.searchParams.get('format') || 'csv';
 
     // InfluxQL query for the last 1000 points from the measurement
     const influxql = `SELECT * FROM "${table}" ORDER BY time DESC LIMIT 1000`;
@@ -46,14 +46,12 @@ export async function GET({ params, url }) {
         return new Response('Error querying InfluxDB: ' + err, { status: 500 });
     }
 
-    // Debug return the response as JSON
-    return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-
     // Parse InfluxQL response
     const series = result && result.results && result.results[0] && result.results[0].series && result.results[0].series[0];
     if (!series) {
         return new Response(format === 'csv' ? '' : '[]', { headers: { 'Content-Type': format === 'csv' ? 'text/csv' : 'application/json' } });
     }
+
     const keys = series.columns;
     const rows = series.values.map(arr => Object.fromEntries(arr.map((v, i) => [keys[i], v])));
     if (format === 'csv') {

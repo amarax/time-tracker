@@ -7,17 +7,16 @@ import si from "systeminformation";
 import dotenv from "dotenv";
 import desktopIdle from "desktop-idle";
 
-import { InfluxDB, Point } from '@influxdata/influxdb-client'
-
-const INFLUX_URL = 'http://127.0.0.1:8086'
-const INFLUX_TOKEN = '' // blank is fine when --without-auth is set
-const INFLUX_ORG = ''   // not used with --without-auth, but required by client
-const INFLUX_BUCKET = 'sys'
-
-const influxDB = new InfluxDB({ url: INFLUX_URL, token: INFLUX_TOKEN })
-const writeApi = influxDB.getWriteApi(INFLUX_ORG, INFLUX_BUCKET, 'ns')
+import { InfluxDBClient, Point } from '@influxdata/influxdb3-client'
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
+
+const INFLUX_URL = process.env.INFLUX_URL || 'http://127.0.0.1:8086';
+const INFLUX_TOKEN = process.env.INFLUX_TOKEN || '';
+const INFLUX_ORG = process.env.INFLUX_ORG || '';
+const INFLUX_BUCKET = process.env.INFLUX_BUCKET || 'process-monitor'; // match API DB name
+
+const client = new InfluxDBClient({ host: INFLUX_URL, token: INFLUX_TOKEN });
 
 const LOG_DIR = path.join(process.cwd(), "logs");
 const POLL_INTERVAL = 1000; // 1 second for demo, change to 60000 for 1 min
@@ -32,13 +31,14 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 async function logFocusedWindow(focused) {
   if (!focused) return;
   try {
-    const pt = new Point("focused_window")
-      .tag("process", focused.process || "")
-      .tag("path", focused.path || "")
-      .tag("url", focused.url || "")
-      .stringField("title", focused.title || "")
-      .timestamp(new Date());
-    writeApi.writePoint(pt);
+    const pt = Point.measurement("focused") // match API measurement name
+      .setTag("process", focused.process || "")
+      .setTag("path", focused.path || "")
+      .setTag("url", focused.url || "")
+      .setTag("title", focused.title || "") // title as tag to match schema
+      .setIntegerField("dummy",0)
+      .setTimestamp(new Date());
+    await client.write(pt, INFLUX_BUCKET);
   } catch (e) {
     console.error("Failed to write focused window to InfluxDB:", e);
   }
@@ -49,16 +49,16 @@ async function logProcessStates(processStates) {
   for (const pid in processStates) {
     const proc = processStates[pid];
     try {
-      const pt = new Point("process_state")
-        .tag("pid", String(pid))
-        .tag("name", proc.name || "")
-        .tag("status", proc.status || "")
-        .floatField("cpu", proc.cpu)
-        .intField("memory", proc.memory)
-        .stringField("started", String(proc.started))
-        .intField("unresponsive", proc.unresponsive ? 1 : 0)
-        .timestamp(new Date());
-      writeApi.writePoint(pt);
+      const pt = Point.measurement("process") // match API measurement name
+        .setTag("pid", String(pid))
+        .setTag("name", proc.name || "")
+        .setTag("status", proc.status || "")
+        .setTag("started", String(proc.started)) // started as tag per schema
+        .setFloatField("cpu", proc.cpu)
+        .setIntegerField("memory", proc.memory)
+        .setBooleanField("unresponsive", !!proc.unresponsive) // bool per schema
+        .setTimestamp(new Date());
+      await client.write(pt, INFLUX_BUCKET);
     } catch (e) {
       console.error("Failed to write process state to InfluxDB:", e);
     }
@@ -68,11 +68,11 @@ async function logProcessStates(processStates) {
 // Write system state to InfluxDB
 async function logSystemState(isIdle, sleepState, customTimestamp) {
   try {
-    const pt = new Point("system_state")
-      .intField("isIdle", isIdle ? 1 : 0)
-      .intField("sleepState", sleepState ? 1 : 0)
-      .timestamp(customTimestamp ? new Date(customTimestamp) : new Date());
-    writeApi.writePoint(pt);
+    const pt = Point.measurement("system") // match API measurement name
+      .setBooleanField("isIdle", !!isIdle)
+      .setTag("sleepState", String(sleepState)) // sleepState as tag per schema
+      .setTimestamp(customTimestamp ? new Date(customTimestamp) : new Date());
+    await client.write(pt, INFLUX_BUCKET);
   } catch (e) {
     console.error("Failed to write system state to InfluxDB:", e);
   }
