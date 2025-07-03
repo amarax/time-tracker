@@ -424,11 +424,18 @@
         maximumFractionDigits: 2,
         minimumFractionDigits: 0
     });
-    const memoryFormatter = new Intl.NumberFormat(undefined, {
-        style: 'decimal',
-        notation: 'compact',
-        minimumFractionDigits: 2
-    });
+    // Format memory as bytes with appropriate units (e.g., KB, MB, GB)
+    const memoryFormatter = (bytes) => {
+        if (typeof bytes !== 'number') bytes = Number(bytes);
+        if (isNaN(bytes)) return '';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let i = 0;
+        while (bytes >= 1024 && i < units.length - 1) {
+            bytes /= 1024;
+            i++;
+        }
+        return `${bytes.toFixed(2)} ${units[i]}`;
+    };
 
 	/**
 	 * Handles mouse move events to show tooltip with entry details.
@@ -448,7 +455,7 @@
         if(entry) {
             content = {
                 title: entry.title ?? entry.name,
-                subtitle: entry.process || `${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter.format(entry.memory)} bytes`,
+                subtitle: entry.process || `${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter(entry.memory)} RAM`,
                 time: entry.time,
             };
         }
