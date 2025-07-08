@@ -231,7 +231,7 @@
             let cpuBuckets = d3.bin()
                 .value((d,i) => new Date(entry.timestamps[i]).getTime() % dayms)
                 .domain([start.getTime() % dayms, end.getTime() % dayms])
-                .thresholds(Math.min(height/2,secondsBetween/2))(entry.cpu)
+                .thresholds(Math.ceil(Math.min(height/2,secondsBetween/2)))(entry.cpu)
                 .map((bucket) => 
                     ({mean: d3.mean(bucket),x0: bucket.x0, x1: bucket.x1})
                 );
