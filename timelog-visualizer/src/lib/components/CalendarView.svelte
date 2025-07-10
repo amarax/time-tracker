@@ -79,11 +79,20 @@
 		// Scale factor: zoom in/out
 		const scaleFactor = 1 + delta / 500; // Prevent negative or zero range
 
-		displayedHourStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
-		displayedHourEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
+		let newStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
+		let newEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
 
-		displayedHourStart = Math.max(0 + timeZoneOffset, displayedHourStart);
-		displayedHourEnd = Math.min(24 * hourms + timeZoneOffset, displayedHourEnd);
+		// Enforce minimum zoom: at least 1 hour
+		const minRange = hourms; // 1 hour in ms
+		if (newEnd - newStart < minRange) {
+			// Center the zoom at centerHour, keep range = minRange
+			const mid = (newStart + newEnd) / 2;
+			newStart = mid - minRange / 2;
+			newEnd = mid + minRange / 2;
+		}
+
+		displayedHourStart = Math.max(0 + timeZoneOffset, newStart);
+		displayedHourEnd = Math.min(24 * hourms + timeZoneOffset, newEnd);
 	}
 
 	// SVG dimensions (responsive)
