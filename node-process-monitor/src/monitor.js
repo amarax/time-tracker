@@ -19,7 +19,7 @@ const INFLUX_BUCKET = process.env.INFLUX_BUCKET || 'process-monitor'; // match A
 const client = new InfluxDBClient({ host: INFLUX_URL, token: INFLUX_TOKEN });
 
 const LOG_DIR = path.join(process.cwd(), "logs");
-const POLL_INTERVAL = 1000; // 1 second for demo, change to 60000 for 1 min
+const POLL_INTERVAL = 60000; // 1 second for demo, change to 60000 for 1 min
 const PROCESS_SUBSTRINGS =
   process.env.MONITOR_PROCESS_SUBSTRINGS?.split(",")
     .map((s) => s.trim())
