@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
 	import { get } from 'svelte/store';
+	import { scale } from 'svelte/transition';
 	/**
 	 * @typedef {Object} Entry
 	 * @property {Date} time - ISO string representing the start time of the entry
@@ -77,19 +78,16 @@
 		const centerHour = timeAxis.invert(centerY);
 
 		// Scale factor: zoom in/out
-		const scaleFactor = 1 + delta / 500; // Prevent negative or zero range
-
-		let newStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
-		let newEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
+		let scaleFactor = 1 + delta / 500; // Prevent negative or zero range
 
 		// Enforce minimum zoom: at least 1 hour
 		const minRange = hourms; // 1 hour in ms
-		if (newEnd - newStart < minRange) {
-			// Center the zoom at centerHour, keep range = minRange
-			const mid = (newStart + newEnd) / 2;
-			newStart = mid - minRange / 2;
-			newEnd = mid + minRange / 2;
+		if( (displayedHourEnd - displayedHourStart)*scaleFactor < minRange) {
+			scaleFactor = minRange / (displayedHourEnd - displayedHourStart);
 		}
+
+		let newStart = centerHour + (displayedHourStart - centerHour) * scaleFactor;
+		let newEnd = centerHour + (displayedHourEnd - centerHour) * scaleFactor;
 
 		displayedHourStart = Math.max(0 + timeZoneOffset, newStart);
 		displayedHourEnd = Math.min(24 * hourms + timeZoneOffset, newEnd);
@@ -240,7 +238,7 @@
             let cpuBuckets = d3.bin()
                 .value((d,i) => new Date(entry.timestamps[i]).getTime() % dayms)
                 .domain([start.getTime() % dayms, end.getTime() % dayms])
-                .thresholds(Math.ceil(Math.min(height/2,secondsBetween/2)))(entry.cpu)
+                .thresholds(Math.ceil(Math.min(height/2,secondsBetween/2, (entry.cpu?.length ?? 0)/2)))(entry.cpu)
                 .map((bucket) => 
                     ({mean: d3.mean(bucket),x0: bucket.x0, x1: bucket.x1})
                 );

@@ -25,8 +25,8 @@
 	let entries = $state([]);
 
 	// Load the csv events from /logs
-	async function load(logPath) {
-		const response = await fetch(`/logs/${logPath}`);
+	async function load(logPath, startDate, endDate, timeUnit = 30) {
+		const response = await fetch(`/logs/${logPath}?start=${startDate.getTime()}&end=${endDate.getTime()}&unit=${timeUnit}`);
 		const text = await response.text();
 		const lines = text.split('\n');
 		const header = lines.shift().split(',');
@@ -162,14 +162,6 @@
 
 	let processEntries = $state([]);
 
-	onMount(async () => {
-		entries = await load('focused');
-		// Here you can set the entries to a store or pass them directly to the CalendarView
-		// For example, if you have a store:
-		// calendarStore.set(entries);
-
-		processEntries = await load('process');
-	});
 
 	function consolidateProcessEntries(entries) {
 		function key(entry) {
@@ -238,7 +230,22 @@
 			);
 		})
 	);
+
+	$effect(() => {
+		// Ensure the start date is always a Monday
+		let endDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+		load('focused', startDate, endDate).then((data) => {
+			entries = data;
+		});
+		load('process', startDate, endDate).then((data) => {
+			processEntries = data;
+		});
+	});
 </script>
+
+<svelte:head>
+	<title>Time Log Viewer - Week of {startDate.toLocaleDateString()}</title>
+</svelte:head>
 
 <div class="container">
 	<h1>Time log viewer</h1>
