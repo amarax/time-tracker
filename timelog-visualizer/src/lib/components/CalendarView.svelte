@@ -1,13 +1,15 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
+	import { get } from 'svelte/store';
+	import { getFocusedBlocks } from '$lib/CalendarEntries';
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
-	 * 
+	 *
 	 */
 
-	 /**
+	/**
 	 * CalendarView component props.
 	 * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
 	 * @property {Array<ProcessEntryBlock>} processEntries - Array of process entries to display in the calendar.
@@ -67,7 +69,7 @@
 
 		// Enforce minimum zoom: at least 1 hour
 		const minRange = hourms; // 1 hour in ms
-		if( (displayedHourEnd - displayedHourStart)*scaleFactor < minRange) {
+		if ((displayedHourEnd - displayedHourStart) * scaleFactor < minRange) {
 			scaleFactor = minRange / (displayedHourEnd - displayedHourStart);
 		}
 
@@ -125,66 +127,24 @@
 		return `hsl(${hue}, 70%, 70%)`;
 	}
 
-	// Map entries to SVG rectangles
-	function getRects() {
-		/** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:Entry}[]} */
-		const rects = [];
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
-			const start = new Date(entry.start);
-			const end = new Date(entry.end);
-            if(entry.end == entry.start) {
-                end.setTime(start.getTime() + 1000); // Ensure end is at least 1 second after start
-            }
-
-			// If the times are out of bounds for displayed hours, skip
-			if (
-				end.getTime() % dayms < displayedHourStart ||
-				start.getTime() % dayms > displayedHourEnd
-			) {
-				continue;
+	let processNameToIndex = $derived.by(() => {
+		// Group the processes by name
+		let processNames = new Set();
+		for (let entry of processEntries) {
+			if (entry.name) {
+				processNames.add(entry.name);
 			}
-
-			const dayIndex = getDayIndex(start);
-
-			// Calculate rectangle position and size
-			const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
-			const y = timeAxis(start.getTime() % dayms);
-			const width = (0.5 * (svgWidth - labelWidth)) / dateRange.length-4;
-			const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
-
-			rects.push({
-				x,
-				y,
-				width,
-				height,
-				label: entry.title || entry.process || entry.path || entry.url || '',
-				color: stringToColor(entry.process),
-				entry
-			});
 		}
-		return rects;
-	}
 
-    let processNameToIndex = $derived.by(() => {
-        // Group the processes by name
-        let processNames = new Set();
-        for (let entry of processEntries) {
-            if (entry.name) {
-                processNames.add(entry.name);
-            }
-        }
-
-        // Map each set to an index
-        /** @type {Record<string, number>}*/
-        const processNameToIndex = {};
-        let index = 0;
-        for (let name of processNames) {
-            processNameToIndex[name] = index++;
-        }
-        return processNameToIndex;
-    });
-
+		// Map each set to an index
+		/** @type {Record<string, number>}*/
+		const processNameToIndex = {};
+		let index = 0;
+		for (let name of processNames) {
+			processNameToIndex[name] = index++;
+		}
+		return processNameToIndex;
+	});
 
 	function getProcessRects() {
 		/** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry, cpuGraph:string}[]} */
@@ -215,24 +175,25 @@
 			const width = colWidth / Object.values(processNameToIndex).length - 4;
 			const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
 
+			let secondsBetween = end.getTime() - start.getTime();
+			secondsBetween /= 1000;
 
-            let secondsBetween = (end.getTime() - start.getTime());
-            secondsBetween /= 1000;
+			// Aggregate the cpu usage into buckets based on the height of the rectangle
+			let cpuBuckets = d3
+				.bin()
+				.value((d, i) => new Date(entry.timestamps[i]).getTime() % dayms)
+				.domain([start.getTime() % dayms, end.getTime() % dayms])
+				.thresholds(
+					Math.ceil(Math.min(height / 2, secondsBetween / 2, (entry.cpu?.length ?? 0) / 2))
+				)(entry.cpu)
+				.map((bucket) => ({ mean: d3.mean(bucket), x0: bucket.x0, x1: bucket.x1 }));
 
-            // Aggregate the cpu usage into buckets based on the height of the rectangle
-            let cpuBuckets = d3.bin()
-                .value((d,i) => new Date(entry.timestamps[i]).getTime() % dayms)
-                .domain([start.getTime() % dayms, end.getTime() % dayms])
-                .thresholds(Math.ceil(Math.min(height/2,secondsBetween/2, (entry.cpu?.length ?? 0)/2)))(entry.cpu)
-                .map((bucket) => 
-                    ({mean: d3.mean(bucket),x0: bucket.x0, x1: bucket.x1})
-                );
-            
-            let area = d3.area()
-                .y(d=> timeAxis((d.x0+d.x1)/2))
-                .x0(0)
-                .x1(d=>d.mean * width/100)
-                .defined(d=>!isNaN(d.mean));
+			let area = d3
+				.area()
+				.y((d) => timeAxis((d.x0 + d.x1) / 2))
+				.x0(0)
+				.x1((d) => (d.mean * width) / 100)
+				.defined((d) => !isNaN(d.mean));
 
 			rects.push({
 				x,
@@ -243,7 +204,7 @@
 				color: stringToColor(entry.name),
 				entry,
 
-                cpuGraph: area(cpuBuckets),
+				cpuGraph: area(cpuBuckets)
 			});
 		}
 
@@ -335,7 +296,30 @@
 	}
 
 	// Tooltip state
-	let tooltip = $state({ visible: false, x: 0, align:'left', y: 0, entry: null });
+	let tooltip = $state({ visible: false, x: 0, align: 'left', y: 0, entry: null });
+
+	/**
+	 * 
+	 * @param {number} mouseX
+	 * @param {number} mouseY
+	 * @returns {Date|null} The timestamp at the mouse position, or null if outside the calendar bounds.
+	 */
+	function getHoveredTimestamp(mouseX, mouseY) {
+		if (!container) return null;
+		const rect = container.getBoundingClientRect();
+		const svgX = mouseX - rect.left;
+		const svgY = mouseY - rect.top;
+
+		// Find day index
+		const dayWidth = (svgWidth - labelWidth) / dateRange.length;
+		let dayIdx = Math.floor((svgX - labelWidth) / dayWidth);
+		if (dayIdx < 0) dayIdx = 0;
+		if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
+
+		// Find ms-of-day from y
+		let msOfDay = timeAxis.invert(svgY);
+		return new Date(dateRange[dayIdx].getTime() + msOfDay - timeZoneOffset);
+	}
 
 	/**
 	 * Finds the closest entry to the mouse position.
@@ -358,8 +342,10 @@
 		// Find ms-of-day from y
 		let msOfDay = timeAxis.invert(svgY);
 		// Find closest entry in that day
-		let minDist = Infinity;
 		let closest = null;
+
+		let hoverTimeStamp = getHoveredTimestamp(mouseX, mouseY);
+		if (!hoverTimeStamp) return null;
 
 		const dayXStart = labelWidth + dayIdx * dayWidth;
 
@@ -367,67 +353,61 @@
 		// If mouseX is outside the day range, return null
 		if (svgX <= dayXMid) {
 			for (let entry of entries) {
-				const start = new Date(entry.time);
-                const end = entry.end ? new Date(entry.end) : new Date(start);
-				const entryDayIdx = getDayIndex(start);
-				if (entryDayIdx !== dayIdx) continue;
+				const start = new Date(entry.start);
+				const end = entry.end ? new Date(entry.end) : new Date();
+				if (hoverTimeStamp < start || hoverTimeStamp > end) continue;
 
-				const entryMs = start.getTime() % dayms;
-                const entryEndMs = end.getTime() % dayms;
-                if (msOfDay < entryMs || msOfDay > entryEndMs) continue;
-
-                closest = entry;
+				closest = entry;
 			}
 			return closest;
 		} else {
-            const dayXEnd = dayXStart + dayWidth;
-            
-            const processNameIndex = Math.floor(Object.values(processNameToIndex).length * (svgX - dayXMid) / (dayXEnd - dayXMid));
-            const processName = Object.entries(processNameToIndex).find(([name, index]) => index === processNameIndex)?.[0];
+			const dayXEnd = dayXStart + dayWidth;
 
-            // Search process entries
-            for (let entry of processEntries) {
-                if (entry.name !== processName) continue;
+			const processNameIndex = Math.floor(
+				(Object.values(processNameToIndex).length * (svgX - dayXMid)) / (dayXEnd - dayXMid)
+			);
+			const processName = Object.entries(processNameToIndex).find(
+				([name, index]) => index === processNameIndex
+			)?.[0];
 
-                const start = entry.start;
-                const end = entry.end;
-                const entryDayIdx = getDayIndex(start);
-                if (entryDayIdx !== dayIdx) continue;
+			// Search process entries
+			for (let entry of processEntries) {
+				if (entry.name !== processName) continue;
 
-                const entryMs = start.getTime() % dayms;
-                const entryEndMs = end.getTime() % dayms;
-                if( msOfDay < entryMs || msOfDay > entryEndMs) continue;
-                
-                let n = entry.timestamps.findIndex(ts => {
-                    const tsMs = new Date(ts).getTime() % dayms;
-                    return tsMs >= msOfDay;
-                });
+				const start = entry.start;
+				const end = entry.end;
+				if (hoverTimeStamp < start || hoverTimeStamp > end) continue;
 
-                let e = {...entry, time:entry.timestamps[n], cpu:entry.cpu[n], memory: entry.memory[n]};
+				let n = entry.timestamps.findIndex((ts) => {
+					const tsMs = new Date(ts).getTime() % dayms;
+					return tsMs >= msOfDay;
+				});
 
-                return e;
-            }
-        }
+				let e = { ...entry, time: entry.timestamps[n], cpu: entry.cpu[n], memory: entry.memory[n] };
+
+				return e;
+			}
+		}
 	}
 
-    // Create a number formatter for CPU and memory
-    const cpuFormatter = new Intl.NumberFormat(undefined, {
-        style: 'decimal',
-        maximumFractionDigits: 2,
-        minimumFractionDigits: 0
-    });
-    // Format memory as bytes with appropriate units (e.g., KB, MB, GB)
-    const memoryFormatter = (bytes) => {
-        if (typeof bytes !== 'number') bytes = Number(bytes);
-        if (isNaN(bytes)) return '';
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let i = 0;
-        while (bytes >= 1024 && i < units.length - 1) {
-            bytes /= 1024;
-            i++;
-        }
-        return `${bytes.toFixed(2)} ${units[i]}`;
-    };
+	// Create a number formatter for CPU and memory
+	const cpuFormatter = new Intl.NumberFormat(undefined, {
+		style: 'decimal',
+		maximumFractionDigits: 2,
+		minimumFractionDigits: 0
+	});
+	// Format memory as bytes with appropriate units (e.g., KB, MB, GB)
+	const memoryFormatter = (bytes) => {
+		if (typeof bytes !== 'number') bytes = Number(bytes);
+		if (isNaN(bytes)) return '';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+		let i = 0;
+		while (bytes >= 1024 && i < units.length - 1) {
+			bytes /= 1024;
+			i++;
+		}
+		return `${bytes.toFixed(2)} ${units[i]}`;
+	};
 
 	/**
 	 * Handles mouse move events to show tooltip with entry details.
@@ -436,30 +416,36 @@
 	function handleMouseMoveTooltip(event) {
 		const entry = findClosestEntry(event.clientX, event.clientY);
 
-        let dayIndex = getDayIndex(new Date(entry?.time ?? entry?.timestamps[0]));
+		// Get the hovered timestamp based on the mouse position
+		const hoveredTimestamp = getHoveredTimestamp(event.clientX, event.clientY);
 
-        let type = 'focused';
-        if(entry && entry.cpu) {
-            type = 'process';
-        }
+		let type = 'focused';
+		if (entry && entry.cpu) {
+			type = 'process';
+		}
 
-        let content = null;
-        if(entry) {
-            content = {
-                title: entry.title ?? entry.name,
-                subtitle: entry.process || `${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter(entry.memory)} RAM`,
-                time: entry.time,
-            };
-        }
-
+		let content = null;
 		if (entry) {
+			content = {
+				title: entry.title ?? entry.name,
+				subtitle:
+					entry.process ||
+					`${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter(entry.memory)} RAM`,
+				time: entry.time || entry.start,
+			};
+		}
+
+		if (entry && hoveredTimestamp) {
+			let dayIndex = getDayIndex(new Date(hoveredTimestamp));
+
 			let x =
-				((type == 'focused' ? dayIndex : 6-dayIndex)) * ((svgWidth - labelWidth) / dateRange.length) +
-				(type=='focused'?labelWidth:0);
+				(type == 'focused' ? dayIndex : 6 - dayIndex) *
+					((svgWidth - labelWidth) / dateRange.length) +
+				(type == 'focused' ? labelWidth : 0);
 			tooltip = {
 				visible: true,
 				x,
-                align: type == 'focused' ? 'left' : 'right',
+				align: type == 'focused' ? 'left' : 'right',
 				y: event.clientY + 12,
 				content
 			};
@@ -471,6 +457,8 @@
 	function handleMouseLeaveTooltip() {
 		tooltip = { visible: false, x: 0, y: 0, entry: null };
 	}
+
+	let focusedRects = $derived(getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange));
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -533,11 +521,11 @@
 						fill={rect.color || '#ffcc80'}
 						fill-opacity="0.3"
 					/>
-                    <path
-                        d={rect.cpuGraph}
-                        fill={rect.color || '#ff9800'}
-                        transform={`translate(${rect.x + 2}, 0)`}
-                        />
+					<path
+						d={rect.cpuGraph}
+						fill={rect.color || '#ff9800'}
+						transform={`translate(${rect.x + 2}, 0)`}
+					/>
 					{#if rect.label && rect.height > 20}
 						<text
 							x={rect.x + 2}
@@ -548,7 +536,10 @@
 							fill="#222"
 							pointer-events="none"
 						>
-							{rect.label.slice(0, rect.width*2/8)}{#if rect.label.length > rect.width*2/8}...{/if}
+							{rect.label.slice(
+								0,
+								(rect.width * 2) / 8
+							)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
 						</text>
 					{/if}
 				{/if}
@@ -557,14 +548,14 @@
 
 		<!-- Entries -->
 		<g class="entries">
-			{#each getRects() as rect}
+			{#each focusedRects as rect}
 				{#if rect.height > 1}
 					<rect
 						x={rect.x + 2}
 						y={rect.y + 2}
 						width={rect.width}
 						height={rect.height}
-						fill={rect.color || '#90caf9'}
+						fill={stringToColor(rect.entry.process || rect.entry.pid)}
 						fill-opacity="0.85"
 					/>
 					{#if rect.label && rect.height > 20}
@@ -577,7 +568,10 @@
 							fill="#222"
 							pointer-events="none"
 						>
-							{rect.label.slice(0, rect.width*2/8)}{#if rect.label.length > rect.width*2/8}...{/if}
+							{rect.label.slice(
+								0,
+								(rect.width * 2) / 8
+							)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
 						</text>
 					{/if}
 				{/if}
@@ -587,7 +581,8 @@
 	{#if tooltip.visible && tooltip.content}
 		<div
 			class="calendar-tooltip"
-			style="position:fixed; {tooltip.align}:{tooltip.x - 8}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;"
+			style="position:fixed; {tooltip.align}:{tooltip.x -
+				8}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;"
 		>
 			<div
 				style="background:#fff; border:1px solid #bbb; border-radius:4px; padding:8px 12px; box-shadow:0 2px 8px #0002; font-size:13px; min-width:180px; max-width:320px;"

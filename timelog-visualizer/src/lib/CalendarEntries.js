@@ -95,15 +95,80 @@ function consolidateProcessEntries(entries) {
  * @returns {FocusedEntry[]}
  */
 function convertFocusedEntries(entries) {
-    return entries.map((e, i, a) => ({
-        start: new Date(e.time),
-        end: i < a.length - 1 ? new Date(a[i + 1].time) : new Date(),
-        title: e.title,
-        process: e.process,
-        path: e.path,
-        url: e.url
-    }));
+	return entries.map((e, i, a) => ({
+		start: new Date(e.time),
+		end: i < a.length - 1 ? new Date(a[i + 1].time) : undefined,
+		title: e.title,
+		process: e.process,
+		path: e.path,
+		url: e.url
+	}));
 }
+
+const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// One formatter to read full Y-M-D-h-m-s parts in the target zone
+const fullFmt = new Intl.DateTimeFormat('en-US', {
+	timeZone,
+	hour12: false,
+	year: 'numeric',
+	month: '2-digit',
+	day: '2-digit',
+	hour: '2-digit',
+	minute: '2-digit',
+	second: '2-digit'
+});
+
+// Get zone offset (ms) for a given UTC timestamp
+const offset = (ts) => {
+	const parts = Object.fromEntries(
+		fullFmt
+			.formatToParts(new Date(ts))
+			.filter((p) => p.type !== 'literal')
+			.map((p) => [p.type, +p.value])
+	);
+	const localEpoch = Date.UTC(
+		parts.year,
+		parts.month - 1,
+		parts.day,
+		parts.hour,
+		parts.minute,
+		parts.second
+	);
+	return localEpoch - ts; // positive east of UTC
+};
+
+// UTC timestamp of the next local midnight after ts
+const nextMidnight = (ts) => {
+	const dParts = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	})
+		.formatToParts(new Date(ts))
+		.filter((p) => p.type !== 'literal')
+		.reduce((a, p) => ((a[p.type] = +p.value), a), {});
+
+	const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day + 1, 0, 0, 1); // 00:00 UTC of next day
+	return baseUTC - offset(baseUTC); // shift back to local midnight in UTC
+};
+
+const currentMidnight = (ts) => {
+    const dParts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    })
+        .formatToParts(new Date(ts))
+        .filter((p) => p.type !== 'literal')
+        .reduce((a, p) => ((a[p.type] = +p.value), a), {});
+
+    const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day, 0, 0, 1); // 00:00 UTC of today
+    return baseUTC; // shift back to local midnight in UTC
+}
+
 
 /**
  * Split events so each slice sits inside a single local day.
@@ -112,53 +177,6 @@ function convertFocusedEntries(entries) {
  * @returns {Array<{time:string,end:string}>}
  */
 function splitByDay(events, tz = Intl.DateTimeFormat().resolvedOptions().timeZone) {
-	// One formatter to read full Y-M-D-h-m-s parts in the target zone
-	const fullFmt = new Intl.DateTimeFormat('en-US', {
-		timeZone: tz,
-		hour12: false,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-		hour: '2-digit',
-		minute: '2-digit',
-		second: '2-digit'
-	});
-
-	// Get zone offset (ms) for a given UTC timestamp
-	const offset = (ts) => {
-		const parts = Object.fromEntries(
-			fullFmt
-				.formatToParts(new Date(ts))
-				.filter((p) => p.type !== 'literal')
-				.map((p) => [p.type, +p.value])
-		);
-		const localEpoch = Date.UTC(
-			parts.year,
-			parts.month - 1,
-			parts.day,
-			parts.hour,
-			parts.minute,
-			parts.second
-		);
-		return localEpoch - ts; // positive east of UTC
-	};
-
-	// UTC timestamp of the next local midnight after ts
-	const nextMidnight = (ts) => {
-		const dParts = new Intl.DateTimeFormat('en-US', {
-			timeZone: tz,
-			year: 'numeric',
-			month: '2-digit',
-			day: '2-digit'
-		})
-			.formatToParts(new Date(ts))
-			.filter((p) => p.type !== 'literal')
-			.reduce((a, p) => ((a[p.type] = +p.value), a), {});
-
-		const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day + 1, 0, 0, 1); // 00:00 UTC of next day
-		return baseUTC - offset(baseUTC); // shift back to local midnight in UTC
-	};
-
 	const out = [];
 
 	for (const ev of events) {
@@ -178,7 +196,65 @@ function splitByDay(events, tz = Intl.DateTimeFormat().resolvedOptions().timeZon
 	return out;
 }
 
-export {
-	consolidateProcessEntries,
-    convertFocusedEntries,
-};
+/**
+ * @param {Date} date
+ * @returns {number}
+ */
+function getDayIndex(date) {
+	return (date.getDay() - 1 + 7) % 7;
+}
+
+const dayms = 24 * 60 * 60 * 1000;
+
+/**
+ * Maps calendar entries to SVG rectangles.
+ * @param {Array<FocusedEntry>} entries - Array of calendar entries.
+ * @param {function} timeAxis - Function to map time to SVG Y coordinate.
+ * @param {number} svgWidth - Width of the SVG element.
+ * @param {number} labelWidth - Width of the label area in the SVG.
+ * @param {Array<Date>} dateRange - Array of dates representing the range of the calendar.
+ * @returns {Array<CalendarBlock>}
+ */
+function getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange) {
+	/** @type {CalendarBlock[]} */
+	const rects = [];
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		let start = new Date(entry.start);
+		let end = new Date(entry.end || Math.min(Date.now(), dateRange[dateRange.length - 1].getTime() + dayms));
+
+		while (start < end) {
+			const blockEnd = nextMidnight(start) - 1; // 23:59:59.999 local
+
+			const dayIndex = getDayIndex(start);
+
+            const dayStart = currentMidnight(start.getTime());
+
+
+			// Calculate rectangle position and size
+			const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
+			const y = timeAxis(start.getTime() - dayStart);
+			const width = (0.5 * (svgWidth - labelWidth)) / dateRange.length - 4;
+			const height = Math.abs(timeAxis(Math.min(end.getTime(), blockEnd) - dayStart) - timeAxis(start.getTime() - dayStart));
+
+			// Skip if the rect lies outside of timeAxis bounds
+			if (true || y + height >= timeAxis.range()[0] && y < timeAxis.range()[1]) {
+				rects.push({
+					start: new Date(start),
+					end: new Date(blockEnd),
+					label: entry.title || entry.process || entry.path || entry.url || '',
+					x,
+					y,
+					width,
+					height,
+					entry
+				});
+			}
+
+			start = new Date(blockEnd + 1); // continue from the next ms
+		}
+	}
+	return rects;
+}
+
+export { consolidateProcessEntries, convertFocusedEntries, getFocusedBlocks };
