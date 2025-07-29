@@ -238,7 +238,7 @@ function getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange) {
 			const height = Math.abs(timeAxis(Math.min(end.getTime(), blockEnd) - dayStart) - timeAxis(start.getTime() - dayStart));
 
 			// Skip if the rect lies outside of timeAxis bounds
-			if (true || y + height >= timeAxis.range()[0] && y < timeAxis.range()[1]) {
+			if (y + height >= timeAxis.range()[0] && y < timeAxis.range()[1]) {
 				rects.push({
 					start: new Date(start),
 					end: new Date(blockEnd),
