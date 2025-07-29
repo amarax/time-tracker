@@ -1,25 +1,12 @@
 <script>
 	import CalendarView from '$lib/components/CalendarView.svelte';
 
-	import { onMount } from 'svelte';
+	import { consolidateProcessEntries, convertFocusedEntries } from '$lib/CalendarEntries.js';
 
 	/**
-	 * @typedef {Object} Entry
-	 * @property {Date} timestamp - ISO string representing the start time of the entry
-	 * @property {string} title - Focused window title
-	 * @property {string} process - Process name
-	 * @property {string} path - File path of the process
-	 * @property {string} [url] - URL if the entry is a web page
-	 */
-
-	/**
-	 * @typedef {Object} ProcessEntry
-	 * @property {Date[]} timestamps - ISO string representing the start time of the entry
-	 * @property {string} pid - Process ID
-	 * @property {string} name - Process exe file
-	 * @property {string[]} cpu - CPU usage percentage
-	 * @property {string[]} memory - Memory usage in bytes
-	 * @property {Date} started - ISO string representing the start time of the process
+	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
+	 * @typedef {import('$lib/CalendarEntries').ProcessEntry} ProcessEntry
+	 * 
 	 */
 
 	let entries = $state([]);
@@ -54,144 +41,18 @@
 
 		const DAY = 86_400_000; // ms in a day
 
-		/**
-		 * Split events so each slice sits inside a single local day.
-		 * @param {Array<{time:string,end:string}>} events
-		 * @param {string}   tz  IANA zone, e.g. "Asia/Singapore"
-		 * @returns {Array<{time:string,end:string}>}
-		 */
-		function splitByDay(events, tz = Intl.DateTimeFormat().resolvedOptions().timeZone) {
-			// One formatter to read full Y-M-D-h-m-s parts in the target zone
-			const fullFmt = new Intl.DateTimeFormat('en-US', {
-				timeZone: tz,
-				hour12: false,
-				year: 'numeric',
-				month: '2-digit',
-				day: '2-digit',
-				hour: '2-digit',
-				minute: '2-digit',
-				second: '2-digit'
-			});
-
-			// Get zone offset (ms) for a given UTC timestamp
-			const offset = (ts) => {
-				const parts = Object.fromEntries(
-					fullFmt
-						.formatToParts(new Date(ts))
-						.filter((p) => p.type !== 'literal')
-						.map((p) => [p.type, +p.value])
-				);
-				const localEpoch = Date.UTC(
-					parts.year,
-					parts.month - 1,
-					parts.day,
-					parts.hour,
-					parts.minute,
-					parts.second
-				);
-				return localEpoch - ts; // positive east of UTC
-			};
-
-			// UTC timestamp of the next local midnight after ts
-			const nextMidnight = (ts) => {
-				const dParts = new Intl.DateTimeFormat('en-US', {
-					timeZone: tz,
-					year: 'numeric',
-					month: '2-digit',
-					day: '2-digit'
-				})
-					.formatToParts(new Date(ts))
-					.filter((p) => p.type !== 'literal')
-					.reduce((a, p) => ((a[p.type] = +p.value), a), {});
-
-				const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day + 1, 0, 0, 1); // 00:00 UTC of next day
-				return baseUTC - offset(baseUTC); // shift back to local midnight in UTC
-			};
-
-			const out = [];
-
-			for (const ev of events) {
-				let start = Date.parse(ev.time);
-				const end = Date.parse(ev.end);
-
-				while (start < end) {
-					const sliceEnd = Math.min(end, nextMidnight(start) - 1); // 23:59:59.999 local
-					out.push({
-						...ev,
-						time: new Date(start).toISOString(),
-						end: new Date(sliceEnd).toISOString()
-					});
-					start = sliceEnd + 1; // continue from the next ms
-				}
-			}
-			return out;
-		}
 
 		if (logPath === 'process') {
 			// Convert process entries to the expected format
 			return consolidateProcessEntries(e);
-		} else {
-			// If the time goes across days, split the entry into multiple entries
-			e = e
-				.flatMap((entry) => {
-					if (!entry.end) return [entry]; // If there's no end time, return the entry as is
-
-					const start = new Date(entry.time);
-					const end = entry.end ? new Date(entry.end) : new Date(start);
-					if (start.getDate() !== end.getDate()) {
-						let entries = splitByDay([entry]);
-						console.log(entries);
-
-						return entries;
-					} else {
-						// If the entry is within the same day, return it as is
-						return [
-							{
-								...entry,
-								time: start.toISOString(),
-								end: end.toISOString()
-							}
-						];
-					}
-				})
-				.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+		} else if (logPath === 'focused') {
+			// Convert focused entries to the expected format
+			return convertFocusedEntries(e);
 		}
-
 		return e;
 	}
 
 	let processEntries = $state([]);
-
-
-	function consolidateProcessEntries(entries) {
-		function key(entry) {
-			return `${entry.pid}-${new Date(entry.started).getTime()}-${new Date(entry.time).getDay()}`;
-		}
-
-		const consolidated = {};
-		for (const e of entries) {
-			let lastEntry = consolidated[key(e)];
-			if (lastEntry) {
-				// If the last entry has the same PID, update it
-				lastEntry.timestamps.push(new Date(e.time));
-				lastEntry.cpu.push(e.cpu);
-				lastEntry.memory.push(e.memory);
-				lastEntry.end = new Date(e.time);
-			} else {
-				// Otherwise, create a new entry
-				consolidated[key(e)] = {
-					pid: e.pid,
-					name: e.name,
-					timestamps: [new Date(e.time)],
-					cpu: [e.cpu],
-					memory: [e.memory],
-					start: new Date(e.time),
-					end: new Date(e.time)
-				};
-			}
-		}
-		return Object.values(consolidated);
-	}
 
 	let startDate = $state(setStartDateToMonday(new Date()));
 
@@ -211,25 +72,6 @@
 		newDate.setDate(newDate.getDate() + offset * 7);
 		startDate = setStartDateToMonday(newDate);
 	}
-
-	let filteredEntries = $derived(
-		entries?.filter((entry) => {
-			const entryDate = new Date(entry.time);
-			return (
-				entryDate >= startDate &&
-				entryDate <= new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000)
-			);
-		})
-	);
-
-	let filteredProcessEntries = $derived(
-		processEntries?.filter((entry) => {
-			return (
-				entry.end >= startDate &&
-				entry.start <= new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000)
-			);
-		})
-	);
 
 	$effect(() => {
 		// Ensure the start date is always a Monday
@@ -259,8 +101,8 @@
 		<button aria-label="Next week" onclick={() => changeWeek(1)}>&rarr;</button>
 	</div>
 	<CalendarView
-		entries={filteredEntries}
-		processEntries={filteredProcessEntries}
+		{entries}
+		{processEntries}
 		{startDate}
 		days={7}
 		hourStart={7}

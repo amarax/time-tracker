@@ -1,30 +1,16 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
-	import { get } from 'svelte/store';
-	import { scale } from 'svelte/transition';
 	/**
-	 * @typedef {Object} Entry
-	 * @property {Date} time - ISO string representing the start time of the entry
-	 * @property {string} title - Focused window title
-	 * @property {string} process - Process name
-	 * @property {string} path - File path of the process
-	 * @property {string} [url] - URL if the entry is a web page
+	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
+	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
+	 * 
 	 */
 
-	/**
-	 * @typedef {Object} ProcessEntry
-	 * @property {Date[]} timestamps - ISO string representing the start time of the entry
-	 * @property {string} pid - Process ID
-	 * @property {string} name - Process exe file
-	 * @property {string[]} cpu - CPU usage percentage
-	 * @property {string[]} memory - Memory usage in bytes
-	 * @property {Date} started - ISO string representing the start time of the process
-	 */
-
-	/**
+	 /**
 	 * CalendarView component props.
 	 * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
+	 * @property {Array<ProcessEntryBlock>} processEntries - Array of process entries to display in the calendar.
 	 * @property {Date|null} startDate - The starting date for the calendar view. If null, defaults to current date.
 	 * @property {number} days - Number of days to display in the calendar view (default: 7).
 	 * @property {number} hourStart - The starting hour of the day to display (default: 0).
@@ -39,7 +25,6 @@
 		hourEnd = 24
 	} = $props();
 
-	// --- Svelte 5 runes ---
 	let dateRange = $derived.by(() => {
 		const base = startDate ? new Date(startDate) : new Date();
 		base.setHours(0, 0, 0, 0);
@@ -146,9 +131,9 @@
 		const rects = [];
 		for (let i = 0; i < entries.length; i++) {
 			const entry = entries[i];
-			const start = new Date(entry.time);
+			const start = new Date(entry.start);
 			const end = new Date(entry.end);
-            if(entry.end == entry.time) {
+            if(entry.end == entry.start) {
                 end.setTime(start.getTime() + 1000); // Ensure end is at least 1 second after start
             }
 
