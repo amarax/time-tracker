@@ -301,8 +301,6 @@ function getSystemBlocks(entries) {
     let currentRect = null;
 
     for (const entry of entries) {
-        const start = new Date(entry.start);
-
         if(!entry.isIdle) {
             if(currentRect) {
                 // If we already have a current rectangle, finalize it
@@ -312,7 +310,7 @@ function getSystemBlocks(entries) {
         } else {
             if (!currentRect) {
                 currentRect = {
-                    start: new Date(start),
+                    start: new Date(entry.start),
                     end: new Date(),
                     label: 'Idle',
                 };
@@ -326,8 +324,37 @@ function getSystemBlocks(entries) {
     // If we have an open rectangle at the end, push it
     if (currentRect) {
         rects.push(currentRect);
+        currentRect = null;
     }
     
+    for(const entry of entries) {
+        if(!entry.sleepState || entry.sleepState === 'sleep_stop') {
+            if(currentRect) {
+                // If we already have a current rectangle, finalize it
+                rects.push(currentRect);
+                currentRect = null;
+            }
+        } else if(entry.sleepState === 'sleep_start') {
+            if (!currentRect) {
+                currentRect = {
+                    start: new Date(entry.start),
+                    end: new Date(),
+                    label: 'Sleep',
+                };
+            }
+
+            if(entry.end) {
+                currentRect.end = new Date(entry.end);
+            }
+        }
+    }
+    if(currentRect) {
+        // If we have an open rectangle at the end, push it
+        rects.push(currentRect);
+        currentRect = null;
+    }
+
+
     // Split the rectangles by day
     rects = rects.flatMap((rect) => {
         let start = new Date(rect.start);

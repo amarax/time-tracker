@@ -503,7 +503,7 @@
 	}
 
 
-	let systemRects = $derived(getSystemBlocks(systemEntries));
+	let systemRects = $derived(getSystemBlocks(systemEntries).filter(rect=>rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms && rect.end > dateRange[0]));
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -557,6 +557,7 @@
 		<g class="system-entries">
 			{#each systemRects as rect}
 				<rect
+					class:sleep={rect.label === "Sleep"}
 					x={dateToX(rect.start)}
 					y={dateToY(rect.start)}
 					width={dayWidth}
@@ -688,5 +689,9 @@
 
 	.system-entries rect {
 		fill: #4949491c;
+
+		&.sleep {
+			fill: rgb(194, 194, 194);
+		}
 	}
 </style>
