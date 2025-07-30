@@ -1,15 +1,14 @@
 <script>
 	import CalendarView from '$lib/components/CalendarView.svelte';
 
-	import { consolidateProcessEntries, convertFocusedEntries } from '$lib/CalendarEntries.js';
+	import { consolidateProcessEntries, convertFocusedEntries, convertSystemEntries } from '$lib/CalendarEntries.js';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntry} ProcessEntry
-	 * 
+	 * @typedef {import('$lib/CalendarEntries').SystemEntry} SystemEntry
 	 */
 
-	let entries = $state([]);
 
 	// Load the csv events from /logs
 	async function load(logPath, startDate, endDate, timeUnit = 30) {
@@ -42,17 +41,21 @@
 		const DAY = 86_400_000; // ms in a day
 
 
-		if (logPath === 'process') {
-			// Convert process entries to the expected format
-			return consolidateProcessEntries(e);
-		} else if (logPath === 'focused') {
-			// Convert focused entries to the expected format
-			return convertFocusedEntries(e);
+		switch(logPath) {
+			case 'focused':
+				return convertFocusedEntries(e);
+			case 'system':
+				return convertSystemEntries(e);
+			case 'process':
+				return consolidateProcessEntries(e);
 		}
+
 		return e;
 	}
 
+	let focusedEntries = $state([]);
 	let processEntries = $state([]);
+	let systemEntries = $state([]);
 
 	let startDate = $state(setStartDateToMonday(new Date()));
 
@@ -72,18 +75,22 @@
 		newDate.setDate(newDate.getDate() + offset * 7);
 		startDate = setStartDateToMonday(newDate);
 
-		entries = [];
+		focusedEntries = [];
 		processEntries = [];
+		systemEntries = [];
 	}
 
 	$effect(() => {
 		// Ensure the start date is always a Monday
 		let endDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
 		load('focused', startDate, endDate).then((data) => {
-			entries = data;
+			focusedEntries = data;
 		});
 		load('process', startDate, endDate).then((data) => {
 			processEntries = data;
+		});
+		load('system', startDate, endDate).then((data) => {
+			systemEntries = data;
 		});
 	});
 </script>
@@ -104,8 +111,9 @@
 		<button aria-label="Next week" onclick={() => changeWeek(1)}>&rarr;</button>
 	</div>
 	<CalendarView
-		{entries}
+		entries={focusedEntries}
 		{processEntries}
+		{systemEntries}
 		{startDate}
 		days={7}
 		hourStart={7}

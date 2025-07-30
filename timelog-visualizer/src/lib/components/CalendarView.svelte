@@ -2,25 +2,29 @@
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
 	import { get } from 'svelte/store';
-	import { getFocusedBlocks } from '$lib/CalendarEntries';
+	import { currentMidnight, getFocusedBlocks, getSystemBlocks } from '$lib/CalendarEntries';
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
-	 *
+	 * @typedef {import('$lib/CalendarEntries').SystemEntry} SystemEntry
 	 */
 
 	/**
 	 * CalendarView component props.
-	 * @property {Array<Entry>} entries - Array of time log entries to display in the calendar.
-	 * @property {Array<ProcessEntryBlock>} processEntries - Array of process entries to display in the calendar.
-	 * @property {Date|null} startDate - The starting date for the calendar view. If null, defaults to current date.
-	 * @property {number} days - Number of days to display in the calendar view (default: 7).
-	 * @property {number} hourStart - The starting hour of the day to display (default: 0).
-	 * @property {number} hourEnd - The ending hour of the day to display (default: 24).
+	 * @type {{
+	 * 	entries?: Array<FocusedEntry>,
+	 * 	processEntries?: Array<ProcessEntryBlock>,
+	 * 	systemEntries?: Array<SystemEntry>,
+	 * 	startDate?: Date|null,
+	 * 	days?: number,
+	 * 	hourStart?: number,
+	 * 	hourEnd?: number
+	 * }}
 	 */
 	const {
 		entries = [],
 		processEntries = [],
+		systemEntries = [],
 		startDate = null,
 		days = 7,
 		hourStart = 0,
@@ -61,7 +65,7 @@
 	 */
 	function handleScroll(event) {
 		const delta = event.deltaY;
-		const centerY = event.clientY - container.getBoundingClientRect().top;
+		const centerY = event.clientY - (container?.getBoundingClientRect().top ?? 0);
 		const centerHour = timeAxis.invert(centerY);
 
 		// Scale factor: zoom in/out
@@ -325,7 +329,7 @@
 	 * Finds the closest entry to the mouse position.
 	 * @param {number} mouseX - The x-coordinate of the mouse.
 	 * @param {number} mouseY - The y-coordinate of the mouse.
-	 * @returns {Entry|ProcessEntry|null} The closest entry or null if none found.
+	 * @returns {FocusedEntry|ProcessEntry|null} The closest entry or null if none found.
 	 */
 	function findClosestEntry(mouseX, mouseY) {
 		if (!container) return null;
@@ -459,6 +463,47 @@
 	}
 
 	let focusedRects = $derived(getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange));
+
+	let dayWidth = $derived((svgWidth - labelWidth) / dateRange.length);
+
+	/**
+	 * 
+	 * @param {Date} date
+	 * @return {number} The x-coordinate for the date in the calendar view.
+	 */
+	function dateToX(date) {
+		const dayIndex = getDayIndex(date);
+		return (
+			labelWidth +
+			dayIndex * dayWidth
+		);
+	}
+
+	/**
+	 * Converts a date to a Y-coordinate based on the time axis.
+	 * @param {Date} date - The date to convert.
+	 * @return {number} The Y-coordinate for the date in the calendar view.
+	 */
+	function dateToY(date) {
+		const dayStart = currentMidnight(date.getTime());
+		return timeAxis(date.getTime() - dayStart);
+	}
+
+	/**
+	 * Calculates the height of a rectangle based on its start and end times.
+	 * @param {Date} start - The start time of the rectangle.
+	 * @param {Date} end - The end time of the rectangle.
+	 */
+	function rectHeight(start, end) {
+		const dayStart = currentMidnight(start.getTime());
+
+		const startMs = start.getTime() - dayStart;
+		const endMs = end.getTime() - dayStart;
+		return Math.abs(timeAxis(endMs) - timeAxis(startMs));
+	}
+
+
+	let systemRects = $derived(getSystemBlocks(systemEntries));
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -506,6 +551,17 @@
 						{h.label}
 					</text>
 				</g>
+			{/each}
+		</g>
+
+		<g class="system-entries">
+			{#each systemRects as rect}
+				<rect
+					x={dateToX(rect.start)}
+					y={dateToY(rect.start)}
+					width={dayWidth}
+					height={rectHeight(rect.start, rect.end)}
+				/>
 			{/each}
 		</g>
 
@@ -628,5 +684,9 @@
 
 	.calendar-tooltip {
 		font-family: Roboto, sans-serif;
+	}
+
+	.system-entries rect {
+		fill: #4949491c;
 	}
 </style>

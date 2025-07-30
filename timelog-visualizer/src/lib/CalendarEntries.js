@@ -40,11 +40,27 @@
  */
 
 /**
+ * @typedef {Object} SystemEntryRaw
+ * @property {string} time - ISO string representing the start time of the entry
+ * @property {'true'|'false'} isIdle - Whether the system was idle
+ * @property {'sleep_start'|'sleep_stop'|'false'} sleepState - Sleep state of the system
+ * @property {string} [end] - ISO string representing the end time of the entry
+ */
+
+/**
+ * @typedef {Object} SystemEntry
+ * @property {Date} start - Start time of the entry
+ * @property {Date} [end] - End time of the entry
+ * @property {boolean} isIdle - Whether the system was idle
+ * @property {'sleep_start'|'sleep_stop'|false} sleepState - Sleep state of the system
+ */
+
+/**
  * @typedef {Object} CalendarBlock
  * @property {Date} start - Start time of the block
  * @property {Date} end - End time of the block
  * @property {string} label - Label for the block (e.g., process name)
- * @property {FocusedEntry|ProcessEntry} entry - The entry associated with the block
+ * @property {FocusedEntry|ProcessEntry} [entry] - The entry associated with the block
  */
 
 /**
@@ -105,6 +121,20 @@ function convertFocusedEntries(entries) {
 	}));
 }
 
+/**
+ * Converts raw system entries to a structured format.
+ * @param {SystemEntryRaw[]} entries
+ * @returns {SystemEntry[]}
+ */
+function convertSystemEntries(entries) {
+	return entries.map((e) => ({
+		start: new Date(e.time),
+		end: e.end && new Date(e.end),
+		isIdle: e.isIdle === 'true',
+		sleepState: e.sleepState === 'false' ? false : e.sleepState
+	}));
+}
+
 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // One formatter to read full Y-M-D-h-m-s parts in the target zone
@@ -155,20 +185,19 @@ const nextMidnight = (ts) => {
 };
 
 const currentMidnight = (ts) => {
-    const dParts = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    })
-        .formatToParts(new Date(ts))
-        .filter((p) => p.type !== 'literal')
-        .reduce((a, p) => ((a[p.type] = +p.value), a), {});
+	const dParts = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	})
+		.formatToParts(new Date(ts))
+		.filter((p) => p.type !== 'literal')
+		.reduce((a, p) => ((a[p.type] = +p.value), a), {});
 
-    const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day, 0, 0, 1); // 00:00 UTC of today
-    return baseUTC; // shift back to local midnight in UTC
-}
-
+	const baseUTC = Date.UTC(dParts.year, dParts.month - 1, dParts.day, 0, 0, 1); // 00:00 UTC of today
+	return baseUTC; // shift back to local midnight in UTC
+};
 
 /**
  * Split events so each slice sits inside a single local day.
@@ -221,21 +250,25 @@ function getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange) {
 	for (let i = 0; i < entries.length; i++) {
 		const entry = entries[i];
 		let start = new Date(entry.start);
-		let end = new Date(entry.end || Math.min(Date.now(), dateRange[dateRange.length - 1].getTime() + dayms));
+		let end = new Date(
+			entry.end || Math.min(Date.now(), dateRange[dateRange.length - 1].getTime() + dayms)
+		);
 
 		while (start < end) {
 			const blockEnd = nextMidnight(start) - 1; // 23:59:59.999 local
 
 			const dayIndex = getDayIndex(start);
 
-            const dayStart = currentMidnight(start.getTime());
-
+			const dayStart = currentMidnight(start.getTime());
 
 			// Calculate rectangle position and size
 			const x = labelWidth + dayIndex * ((svgWidth - labelWidth) / dateRange.length);
 			const y = timeAxis(start.getTime() - dayStart);
 			const width = (0.5 * (svgWidth - labelWidth)) / dateRange.length - 4;
-			const height = Math.abs(timeAxis(Math.min(end.getTime(), blockEnd) - dayStart) - timeAxis(start.getTime() - dayStart));
+			const height = Math.abs(
+				timeAxis(Math.min(end.getTime(), blockEnd) - dayStart) -
+					timeAxis(start.getTime() - dayStart)
+			);
 
 			// Skip if the rect lies outside of timeAxis bounds
 			if (y + height >= timeAxis.range()[0] && y < timeAxis.range()[1]) {
@@ -257,4 +290,70 @@ function getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange) {
 	return rects;
 }
 
-export { consolidateProcessEntries, convertFocusedEntries, getFocusedBlocks };
+/**
+ * Maps system entries to SVG rectangles.
+ * @param {Array<SystemEntry>} entries - Array of system entries.
+ * @returns {Array<CalendarBlock>}
+ */
+function getSystemBlocks(entries) {
+    /** @type {CalendarBlock[]} */
+    let rects = [];
+    let currentRect = null;
+
+    for (const entry of entries) {
+        const start = new Date(entry.start);
+
+        if(!entry.isIdle) {
+            if(currentRect) {
+                // If we already have a current rectangle, finalize it
+                rects.push(currentRect);
+                currentRect = null;
+            }
+        } else {
+            if (!currentRect) {
+                currentRect = {
+                    start: new Date(start),
+                    end: new Date(),
+                    label: 'Idle',
+                };
+            }
+
+            if(entry.end) {
+                currentRect.end = new Date(entry.end);
+            }
+        }
+    }
+    // If we have an open rectangle at the end, push it
+    if (currentRect) {
+        rects.push(currentRect);
+    }
+    
+    // Split the rectangles by day
+    rects = rects.flatMap((rect) => {
+        let start = new Date(rect.start);
+        const end = new Date(rect.end);
+
+        let r = [];
+        while (start < end) {
+            const sliceEnd = nextMidnight(start) - 1; // 23:59:59.999 local
+            r.push({
+                ...rect,
+                start: new Date(start),
+                end: new Date(Math.min(end.getTime(), sliceEnd))
+            });
+            start = new Date(sliceEnd + 1); // continue from the next ms
+        }
+        return r;
+    });
+
+    return rects;
+}
+
+/**
+ * Maps sleep and idle system entries to SVG rectangles.
+ * @param {Array<SystemEntry>} entries - Array of system entries.
+ * 
+ */
+
+
+export { consolidateProcessEntries, convertFocusedEntries, getFocusedBlocks,getSystemBlocks, convertSystemEntries, currentMidnight };
