@@ -71,6 +71,9 @@
 		const newDate = new Date(startDate);
 		newDate.setDate(newDate.getDate() + offset * 7);
 		startDate = setStartDateToMonday(newDate);
+
+		entries = [];
+		processEntries = [];
 	}
 
 	$effect(() => {
