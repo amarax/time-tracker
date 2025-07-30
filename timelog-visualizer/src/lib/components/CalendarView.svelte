@@ -537,7 +537,7 @@
 					font-size="14"
 					fill="#333"
 				>
-					{d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })}
+					{d.toLocaleDateString("en-SG", { weekday: 'short', month: 'numeric', day: 'numeric' })}
 				</text>
 			{/each}
 		</g>

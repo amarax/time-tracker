@@ -1,7 +1,11 @@
 <script>
 	import CalendarView from '$lib/components/CalendarView.svelte';
 
-	import { consolidateProcessEntries, convertFocusedEntries, convertSystemEntries } from '$lib/CalendarEntries.js';
+	import {
+		consolidateProcessEntries,
+		convertFocusedEntries,
+		convertSystemEntries
+	} from '$lib/CalendarEntries.js';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
@@ -9,10 +13,11 @@
 	 * @typedef {import('$lib/CalendarEntries').SystemEntry} SystemEntry
 	 */
 
-
 	// Load the csv events from /logs
 	async function load(logPath, startDate, endDate, timeUnit = 30) {
-		const response = await fetch(`/logs/${logPath}?start=${startDate.getTime()}&end=${endDate.getTime()}&unit=${timeUnit}`);
+		const response = await fetch(
+			`/logs/${logPath}?start=${startDate.getTime()}&end=${endDate.getTime()}&unit=${timeUnit}`
+		);
 		const text = await response.text();
 		const lines = text.split('\n');
 		const header = lines.shift().split(',');
@@ -40,8 +45,7 @@
 
 		const DAY = 86_400_000; // ms in a day
 
-
-		switch(logPath) {
+		switch (logPath) {
 			case 'focused':
 				return convertFocusedEntries(e);
 			case 'system':
@@ -70,7 +74,7 @@
 		return newDate;
 	}
 
-	function changeWeek(offset) {
+	function offsetWeek(offset) {
 		const newDate = new Date(startDate);
 		newDate.setDate(newDate.getDate() + offset * 7);
 		startDate = setStartDateToMonday(newDate);
@@ -80,9 +84,10 @@
 		systemEntries = [];
 	}
 
+	let endDate = $derived(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000));
+
 	$effect(() => {
 		// Ensure the start date is always a Monday
-		let endDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
 		load('focused', startDate, endDate).then((data) => {
 			focusedEntries = data;
 		});
@@ -93,22 +98,26 @@
 			systemEntries = data;
 		});
 	});
+
+	const formatDate = (date) => {
+		return date.toLocaleDateString('en-SG', {
+			month: 'short',
+			day: 'numeric'
+		});
+	};
 </script>
 
 <svelte:head>
-	<title>Time Log Viewer - Week of {startDate.toLocaleDateString()}</title>
+	<title>Week of {formatDate(startDate)} - Time Log Viewer</title>
 </svelte:head>
 
 <div class="container">
 	<h1>Time log viewer</h1>
 	<div class="week-nav">
-		<button aria-label="Previous week" onclick={() => changeWeek(-1)}>&larr;</button>
-		<span class="week-label"
-			>{startDate.toLocaleDateString()} - {new Date(
-				startDate.getTime() + 6 * 24 * 60 * 60 * 1000
-			).toLocaleDateString()}</span
-		>
-		<button aria-label="Next week" onclick={() => changeWeek(1)}>&rarr;</button>
+		<button aria-label="Today" onclick={() => startDate = setStartDateToMonday(new Date())}>Today</button>
+		<button aria-label="Previous week" onclick={() => offsetWeek(-1)}>&larr;</button>
+		<span class="week-label">{formatDate(startDate)} - {formatDate(endDate)}</span>
+		<button aria-label="Next week" onclick={() => offsetWeek(1)}>&rarr;</button>
 	</div>
 	<CalendarView
 		entries={focusedEntries}
