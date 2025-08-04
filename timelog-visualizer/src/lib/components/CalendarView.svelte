@@ -1,7 +1,12 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
-	import { currentMidnight, getFocusedBlocks, getProcessBlocks, getSystemBlocks } from '$lib/CalendarEntries';
+	import {
+		currentMidnight,
+		getFocusedBlocks,
+		getProcessBlocks,
+		getSystemBlocks
+	} from '$lib/CalendarEntries';
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
@@ -149,75 +154,6 @@
 		}
 		return processNameToIndex;
 	});
-
-	function getProcessRects() {
-		/** @type {{start: Date, end: Date, x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry, cpuGraph:string}[]} */
-		const rects = [];
-		for (let i = 0; i < processEntries.length; i++) {
-			const entry = processEntries[i];
-			const start = entry.start;
-			const end = entry.end;
-
-			if (!start || !end) continue;
-
-			// If the times are out of bounds for displayed hours, skip
-			if (
-				end.getTime() % dayms < displayedHourStart ||
-				start.getTime() % dayms > displayedHourEnd
-			) {
-				continue;
-			}
-
-			const dayIndex = getDayIndex(start);
-
-			// Calculate rectangle position and size
-			const colWidth = (0.5 * (svgWidth - labelWidth)) / dateRange.length;
-
-			const x =
-				labelWidth +
-				(dayIndex + 0.5) * ((svgWidth - labelWidth) / dateRange.length) +
-				(colWidth / Object.values(processNameToIndex).length) * processNameToIndex[entry.name];
-			const y = timeAxis(start.getTime() % dayms);
-			const width = colWidth / Object.values(processNameToIndex).length - 4;
-			const height = Math.abs(timeAxis(end.getTime() % dayms) - timeAxis(start.getTime() % dayms));
-
-			let secondsBetween = end.getTime() - start.getTime();
-			secondsBetween /= 1000;
-
-			// Aggregate the cpu usage into buckets based on the height of the rectangle
-			let cpuBuckets = d3
-				.bin()
-				.value((d, i) => new Date(entry.timestamps[i]).getTime() % dayms)
-				.domain([start.getTime() % dayms, end.getTime() % dayms])
-				.thresholds(
-					Math.ceil(Math.min(height / 2, secondsBetween / 2, (entry.cpu?.length ?? 0) / 2))
-				)(entry.cpu)
-				.map((bucket) => ({ mean: d3.mean(bucket), x0: bucket.x0, x1: bucket.x1 }));
-
-			let area = d3
-				.area()
-				.y((d) => timeAxis((d.x0 + d.x1) / 2))
-				.x0(0)
-				.x1((d) => (d.mean * width) / 100)
-				.defined((d) => !isNaN(d.mean));
-
-			rects.push({
-				start: entry.start,
-				end: entry.end,
-				x,
-				y,
-				width,
-				height,
-				label: entry.name || '',
-				color: stringToColor(entry.name),
-				entry,
-
-				cpuGraph: area(cpuBuckets)
-			});
-		}
-
-		return rects;
-	}
 
 	let displayedTimeRange = $derived(displayedHourEnd - displayedHourStart);
 
@@ -399,7 +335,7 @@
 					time: null,
 					offset: Infinity,
 					index: -1
-				}
+				};
 				let n = entry.timestamps.forEach((ts, i) => {
 					let offset = Math.abs(ts.getTime() - hoverTimeStamp.getTime());
 					if (offset < closest.offset) {
@@ -409,7 +345,12 @@
 					}
 				});
 
-				let e = { ...entry, time: closest.time, cpu: entry.cpu[closest.index], memory: entry.memory[closest.index] };
+				let e = {
+					...entry,
+					time: closest.time,
+					cpu: entry.cpu[closest.index],
+					memory: entry.memory[closest.index]
+				};
 
 				return e;
 			}
@@ -550,8 +491,7 @@
 		)
 	);
 
-	let processColWidth = $derived(dayWidth * 0.5 / Object.values(processNameToIndex).length);
-
+	let processColWidth = $derived((dayWidth * 0.5) / Object.values(processNameToIndex).length);
 
 	/**
 	 * Converts a process name to an x-offset based on its index.
@@ -568,37 +508,41 @@
 	const processGraphAreaPlot = d3
 		.area()
 		.x0(0)
-		.x1((d) => (d.value / 100) * (processColWidth-1) +1)
+		.x1((d) => (d.value / 100) * (processColWidth - 1) + 1)
 		.y((d) => dateToY(d.timestamp))
 		.defined((d) => !isNaN(d.value));
 
-	let processGraphs = $derived(processRects.map((rect) => {
-		if (!rect.entry || !rect.entry.timestamps || !rect.entry.cpu) return '';
+	let processGraphs = $derived(
+		processRects.map((rect) => {
+			if (!rect.entry || !rect.entry.timestamps || !rect.entry.cpu) return '';
 
-		let startIndex, endIndex;
-		for (let i = 0; i < rect.entry.timestamps.length; i++) {
-			if (rect.entry.timestamps[i].getTime() >= rect.start.getTime()) {
-				startIndex = i;
-				break;
+			let startIndex, endIndex;
+			for (let i = 0; i < rect.entry.timestamps.length; i++) {
+				if (rect.entry.timestamps[i].getTime() >= rect.start.getTime()) {
+					startIndex = i;
+					break;
+				}
 			}
-		}
-		for (let i = rect.entry.timestamps.length - 1; i >= startIndex; i--) {
-			if (rect.entry.timestamps[i].getTime() <= rect.end.getTime()) {
-				endIndex = i;
-				break;
+			for (let i = rect.entry.timestamps.length - 1; i >= startIndex; i--) {
+				if (rect.entry.timestamps[i].getTime() <= rect.end.getTime()) {
+					endIndex = i;
+					break;
+				}
 			}
-		}
-		if (startIndex === undefined || endIndex === undefined || startIndex > endIndex) {
-			return '';
-		}
+			if (startIndex === undefined || endIndex === undefined || startIndex > endIndex) {
+				return '';
+			}
 
-		const timestamps = rect.entry.timestamps.slice(startIndex, endIndex + 1);
-		const values = rect.entry.cpu.slice(startIndex, endIndex + 1);
+			const timestamps = rect.entry.timestamps.slice(startIndex, endIndex + 1);
+			const values = rect.entry.cpu.slice(startIndex, endIndex + 1);
 
-		return processGraphAreaPlot(timestamps.map((timestamp, i) => {
-			return { timestamp, value: values[i] };
-		}));
-	}));
+			return processGraphAreaPlot(
+				timestamps.map((timestamp, i) => {
+					return { timestamp, value: values[i] };
+				})
+			);
+		})
+	);
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -637,7 +581,9 @@
 			<!-- Process Entries -->
 			<g class="process-entries">
 				{#each processRects as rect, i}
-					<g transform={`translate(${dateToX(rect.start) + dayWidth/2 + processToXOffset(rect.entry?.name)}, ${dateToY(rect.start)})`}>
+					<g
+						transform={`translate(${dateToX(rect.start) + dayWidth / 2 + processToXOffset(rect.entry?.name)}, ${dateToY(rect.start)})`}
+					>
 						<rect
 							x={2}
 							y={2}
@@ -663,7 +609,7 @@
 							>
 								{rect.label.slice(
 									0,
-								    processColWidth / 8
+									processColWidth / 8
 								)}{#if rect.label.length > processColWidth / 8}...{/if}
 							</text>
 						{/if}
@@ -674,31 +620,29 @@
 			<!-- Entries -->
 			<g class="entries">
 				{#each focusedRects as rect}
-					{#if rectHeight(rect.start, rect.end) > 1}
-						<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
-							<rect
+					<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
+						<rect
+							x={2}
+							y={2}
+							width={dayWidth / 2 - 4}
+							height={rectHeight(rect.start, rect.end)}
+							fill={stringToColor(rect.entry?.process || rect.entry?.pid)}
+							fill-opacity="0.85"
+						/>
+						{#if rect.label && rectHeight(rect.start, rect.end) > 20}
+							<text
 								x={2}
 								y={2}
-								width={dayWidth / 2 - 4}
-								height={rectHeight(rect.start, rect.end)}
-								fill={stringToColor(rect.entry?.process || rect.entry?.pid)}
-								fill-opacity="0.85"
-							/>
-							{#if rect.label && rectHeight(rect.start, rect.end) > 20}
-								<text
-									x={2}
-									y={2}
-									dy={8}
-									text-anchor="start"
-									font-size="8"
-									fill="#222"
-									pointer-events="none"
-								>
-									{rect.label.slice(0, dayWidth / 8)}{#if rect.label.length > dayWidth / 8}...{/if}
-								</text>
-							{/if}
-						</g>
-					{/if}
+								dy={8}
+								text-anchor="start"
+								font-size="8"
+								fill="#222"
+								pointer-events="none"
+							>
+								{rect.label.slice(0, dayWidth / 8)}{#if rect.label.length > dayWidth / 8}...{/if}
+							</text>
+						{/if}
+					</g>
 				{/each}
 			</g>
 
