@@ -225,12 +225,18 @@
 	let timeAxis = $derived.by(() => {
 		return d3
 			.scaleLinear()
-			.domain([0, displayedTimeRange])
+			.domain([timeZoneOffset, displayedTimeRange + timeZoneOffset])
 			.range([labelHeight, svgHeight - labelHeight]);
 	});
 
+	/** @type {number[]} */
+	const allHours = [];
+	for (let h = 0; h <= 24 * hourms; h += hourms) {
+		allHours.push(h + timeZoneOffset);
+	}
+
 	let hourTicks = $derived.by(() => {
-		return hours.map((h) => {
+		return allHours.map((h) => {
 			let date = new Date();
 			date.setHours((h - timeZoneOffset) / hourms, 0, 0, 0);
 			return {
@@ -469,7 +475,7 @@
 	}
 
 	let focusedRects = $derived(
-		getFocusedBlocks(entries, timeAxis, dateRange)?.filter(
+		getFocusedBlocks(entries, dateRange)?.filter(
 			(rect) =>
 				rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
 				rect.end > dateRange[0]
@@ -535,8 +541,6 @@
 		onmousemove={handleMouseMoveTooltip}
 		onmouseleave={handleMouseLeaveTooltip}
 	>
-		<g transform={`translate(${labelWidth},0)`}></g>
-
 		<g transform={`translate(0,${-timeAxis(displayedHourStart)})`}>
 			<!-- Hour labels and grid -->
 			<g class="calendar-grid">
@@ -603,17 +607,17 @@
 			<!-- Entries -->
 			<g class="entries">
 				{#each focusedRects as rect}
-					{#if rect.height > 1}
+					{#if Math.abs(dateToY(rect.end) - dateToY(rect.start)) > 1}
 						<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
 							<rect
 								x={2}
 								y={2}
 								width={dayWidth/2 - 4}
-								height={rect.height}
-								fill={stringToColor(rect.entry.process || rect.entry.pid)}
+								height={Math.abs(dateToY(rect.end) - dateToY(rect.start))}
+								fill={stringToColor(rect.entry?.process || rect.entry?.pid)}
 								fill-opacity="0.85"
 							/>
-							{#if rect.label && rect.height > 20}
+							{#if rect.label && Math.abs(dateToY(rect.end) - dateToY(rect.start)) > 20}
 								<text
 									x={2}
 									y={2}

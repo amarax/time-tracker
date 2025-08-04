@@ -60,7 +60,7 @@
  * @property {Date} start - Start time of the block
  * @property {Date} end - End time of the block
  * @property {string} label - Label for the block (e.g., process name)
- * @property {FocusedEntry|ProcessEntry} [entry] - The entry associated with the block
+ * @property {FocusedEntry|ProcessEntryBlock|SystemEntry} [entry] - The entry associated with the block
  */
 
 /**
@@ -184,32 +184,6 @@ const currentMidnight = (ts) => {
 };
 
 /**
- * Split events so each slice sits inside a single local day.
- * @param {Array<{time:string,end:string}>} events
- * @param {string}   tz  IANA zone, e.g. "Asia/Singapore"
- * @returns {Array<{time:string,end:string}>}
- */
-function splitByDay(events, tz = Intl.DateTimeFormat().resolvedOptions().timeZone) {
-	const out = [];
-
-	for (const ev of events) {
-		let start = Date.parse(ev.time);
-		const end = Date.parse(ev.end);
-
-		while (start < end) {
-			const sliceEnd = Math.min(end, nextMidnight(start) - 1); // 23:59:59.999 local
-			out.push({
-				...ev,
-				time: new Date(start).toISOString(),
-				end: new Date(sliceEnd).toISOString()
-			});
-			start = sliceEnd + 1; // continue from the next ms
-		}
-	}
-	return out;
-}
-
-/**
  * @param {Date} date
  * @returns {number}
  */
@@ -220,15 +194,39 @@ function getDayIndex(date) {
 const dayms = 24 * 60 * 60 * 1000;
 
 /**
+ * Split CalendarBlock entries by day
+ * @param {CalendarBlock[]} blocks - Array of calendar blocks.
+ * @return {CalendarBlock[]}
+ */
+function splitBlocksByDay(blocks) {
+    return blocks.flatMap((block) => {
+        let start = new Date(block.start);
+        const end = new Date(block.end);
+
+        let r = [];
+        while (start < end) {
+            const sliceEnd = nextMidnight(start) - 1000; // 23:59:59 local
+            r.push({
+                ...block,
+                start: new Date(start),
+                end: new Date(Math.min(end.getTime(), sliceEnd))
+            });
+            start = new Date(sliceEnd + 1); // continue from the next ms
+        }
+        return r;
+    });
+}
+
+
+/**
  * Maps calendar entries to SVG rectangles.
  * @param {Array<FocusedEntry>} entries - Array of calendar entries.
- * @param {function} timeAxis - Function to map time to SVG Y coordinate.
  * @param {Array<Date>} dateRange - Array of dates representing the range of the calendar.
  * @returns {Array<CalendarBlock>}
  */
-function getFocusedBlocks(entries, timeAxis, dateRange) {
+function getFocusedBlocks(entries, dateRange) {
 	/** @type {CalendarBlock[]} */
-	const rects = [];
+	let rects = [];
 	for (let i = 0; i < entries.length; i++) {
 		const entry = entries[i];
 		let start = new Date(entry.start);
@@ -236,31 +234,15 @@ function getFocusedBlocks(entries, timeAxis, dateRange) {
 			entry.end || Math.min(Date.now(), dateRange[dateRange.length - 1].getTime() + dayms)
 		);
 
-		while (start < end) {
-			const blockEnd = nextMidnight(start) - 1000; // 23:59:59 local
-
-			const dayIndex = getDayIndex(start);
-
-			const dayStart = currentMidnight(start.getTime());
-
-			// Calculate rectangle position and size
-			const height = Math.abs(
-				timeAxis(Math.min(end.getTime(), blockEnd) - dayStart) -
-					timeAxis(start.getTime() - dayStart)
-			);
-
-			// Skip if the rect lies outside of timeAxis bounds
-            rects.push({
-                start: new Date(start),
-                end: new Date(blockEnd),
-                label: entry.title || entry.process || entry.path || entry.url || '',
-                height,
-                entry
-            });
-
-			start = new Date(blockEnd + 1); // continue from the next ms
-		}
+        rects.push({
+            start: new Date(start),
+            end: new Date(end),
+            label: entry.title || entry.process || entry.path || entry.url || '',
+            entry
+        });
 	}
+
+    rects = splitBlocksByDay(rects);
 	return rects;
 }
 
@@ -330,25 +312,21 @@ function getSystemBlocks(entries) {
 
 
     // Split the rectangles by day
-    rects = rects.flatMap((rect) => {
-        let start = new Date(rect.start);
-        const end = new Date(rect.end);
-
-        let r = [];
-        while (start < end) {
-            const sliceEnd = nextMidnight(start) - 1000; // 23:59:59 local
-            r.push({
-                ...rect,
-                start: new Date(start),
-                end: new Date(Math.min(end.getTime(), sliceEnd))
-            });
-            start = new Date(sliceEnd + 1); // continue from the next ms
-        }
-        return r;
-    });
+    rects = splitBlocksByDay(rects);
 
     return rects;
 }
+
+
+/**
+ * Maps process entries to SVG elements
+ * @param {Array<ProcessEntryBlock>} entries - Array of process entries.
+ * @returns {Array<CalendarBlock>}
+ */
+function getProcessBlocks(entries) {
+
+}
+
 
 /**
  * Maps sleep and idle system entries to SVG rectangles.
