@@ -1,12 +1,12 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
 	import * as d3 from 'd3';
-	import { get } from 'svelte/store';
-	import { currentMidnight, getFocusedBlocks, getSystemBlocks } from '$lib/CalendarEntries';
+	import { currentMidnight, getFocusedBlocks, getProcessBlocks, getSystemBlocks } from '$lib/CalendarEntries';
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
 	 * @typedef {import('$lib/CalendarEntries').SystemEntry} SystemEntry
+	 * @typedef {import('$lib/CalendarEntries').CalendarBlock} CalendarBlock
 	 */
 
 	/**
@@ -66,7 +66,7 @@
 	function handleScroll(event) {
 		const delta = event.deltaY;
 		const centerY = event.clientY - (container?.getBoundingClientRect().top ?? 0);
-		const centerHour = timeAxis.invert(centerY) + displayedHourStart;
+		const centerHour = timeAxis.invert(centerY + timeAxis(displayedHourStart));
 
 		// Scale factor: zoom in/out
 		let scaleFactor = 1 + delta / 500; // Prevent negative or zero range
@@ -144,7 +144,7 @@
 		/** @type {Record<string, number>}*/
 		const processNameToIndex = {};
 		let index = 0;
-		for (let name of processNames) {
+		for (let name of [...processNames].sort()) {
 			processNameToIndex[name] = index++;
 		}
 		return processNameToIndex;
@@ -394,12 +394,22 @@
 				const end = entry.end;
 				if (hoverTimeStamp < start || hoverTimeStamp > end) continue;
 
-				let n = entry.timestamps.findIndex((ts) => {
-					const tsMs = new Date(ts).getTime() % dayms;
-					return tsMs >= msOfDay;
+				/** @type { { time: Date | null, offset: number, index: number } } */
+				let closest = {
+					time: null,
+					offset: Infinity,
+					index: -1
+				}
+				let n = entry.timestamps.forEach((ts, i) => {
+					let offset = Math.abs(ts.getTime() - hoverTimeStamp.getTime());
+					if (offset < closest.offset) {
+						closest.time = ts;
+						closest.index = i;
+						closest.offset = offset;
+					}
 				});
 
-				let e = { ...entry, time: entry.timestamps[n], cpu: entry.cpu[n], memory: entry.memory[n] };
+				let e = { ...entry, time: closest.time, cpu: entry.cpu[closest.index], memory: entry.memory[closest.index] };
 
 				return e;
 			}
@@ -474,6 +484,13 @@
 		tooltip = { visible: false, x: 0, y: 0, entry: null };
 	}
 
+	function handleMouseClick(event) {
+		const entry = findClosestEntry(event.clientX, event.clientY);
+		if (entry) {
+			console.log('Clicked entry:', entry);
+		}
+	}
+
 	let focusedRects = $derived(
 		getFocusedBlocks(entries, dateRange)?.filter(
 			(rect) =>
@@ -525,11 +542,63 @@
 		)
 	);
 
-	let processRects = $derived(getProcessRects().filter(
-		(rect) =>
-			rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
-			rect.end > dateRange[0]
-	));
+	let processRects = $derived(
+		getProcessBlocks(processEntries).filter(
+			(rect) =>
+				rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
+				rect.end > dateRange[0]
+		)
+	);
+
+	let processColWidth = $derived(dayWidth * 0.5 / Object.values(processNameToIndex).length);
+
+
+	/**
+	 * Converts a process name to an x-offset based on its index.
+	 * @param {string} process - The process name.
+	 * @returns {number} The x-offset for the process in the calendar view.
+	 */
+	function processToXOffset(process) {
+		if (!processNameToIndex[process]) return 0; // If process not found, return 0 offset
+
+		const index = processNameToIndex[process];
+		return index * processColWidth;
+	}
+
+	const processGraphAreaPlot = d3
+		.area()
+		.x0(0)
+		.x1((d) => (d.value / 100) * (processColWidth-1) +1)
+		.y((d) => dateToY(d.timestamp))
+		.defined((d) => !isNaN(d.value));
+
+	let processGraphs = $derived(processRects.map((rect) => {
+		if (!rect.entry || !rect.entry.timestamps || !rect.entry.cpu) return '';
+
+		let startIndex, endIndex;
+		for (let i = 0; i < rect.entry.timestamps.length; i++) {
+			if (rect.entry.timestamps[i].getTime() >= rect.start.getTime()) {
+				startIndex = i;
+				break;
+			}
+		}
+		for (let i = rect.entry.timestamps.length - 1; i >= startIndex; i--) {
+			if (rect.entry.timestamps[i].getTime() <= rect.end.getTime()) {
+				endIndex = i;
+				break;
+			}
+		}
+		if (startIndex === undefined || endIndex === undefined || startIndex > endIndex) {
+			return '';
+		}
+
+		const timestamps = rect.entry.timestamps.slice(startIndex, endIndex + 1);
+		const values = rect.entry.cpu.slice(startIndex, endIndex + 1);
+
+		return processGraphAreaPlot(timestamps.map((timestamp, i) => {
+			return { timestamp, value: values[i] };
+		}));
+	}));
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -567,38 +636,36 @@
 
 			<!-- Process Entries -->
 			<g class="process-entries">
-				{#each processRects as rect}
-					<g transform={`translate(${rect.x}, ${dateToY(rect.start)})`}>
-						{#if rect.height > 1}
-							<rect
+				{#each processRects as rect, i}
+					<g transform={`translate(${dateToX(rect.start) + dayWidth/2 + processToXOffset(rect.entry?.name)}, ${dateToY(rect.start)})`}>
+						<rect
+							x={2}
+							y={2}
+							width={processColWidth - 4}
+							height={rectHeight(rect.start, rect.end)}
+							fill={stringToColor(rect.entry?.name)}
+							fill-opacity="0.3"
+						/>
+						<path
+							d={processGraphs[i]}
+							fill={stringToColor(rect.entry?.name)}
+							transform={`translate(2, ${-dateToY(rect.start)})`}
+						/>
+						{#if rect.label && rectHeight(rect.start, rect.end) > 20}
+							<text
 								x={2}
 								y={2}
-								width={rect.width}
-								height={rect.height}
-								fill={rect.color || '#ffcc80'}
-								fill-opacity="0.3"
-							/>
-							<path
-								d={rect.cpuGraph}
-								fill={rect.color || '#ff9800'}
-								transform={`translate(2, -${dateToY(rect.start)})`}
-							/>
-							{#if rect.label && rect.height > 20}
-								<text
-									x={2}
-									y={2}
-									dy={8}
-									text-anchor="start"
-									font-size="8"
-									fill="#222"
-									pointer-events="none"
-								>
-									{rect.label.slice(
-										0,
-										(rect.width * 2) / 8
-									)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
-								</text>
-							{/if}
+								dy={8}
+								text-anchor="start"
+								font-size="8"
+								fill="#222"
+								pointer-events="none"
+							>
+								{rect.label.slice(
+									0,
+								    processColWidth / 8
+								)}{#if rect.label.length > processColWidth / 8}...{/if}
+							</text>
 						{/if}
 					</g>
 				{/each}
@@ -607,17 +674,17 @@
 			<!-- Entries -->
 			<g class="entries">
 				{#each focusedRects as rect}
-					{#if Math.abs(dateToY(rect.end) - dateToY(rect.start)) > 1}
+					{#if rectHeight(rect.start, rect.end) > 1}
 						<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
 							<rect
 								x={2}
 								y={2}
-								width={dayWidth/2 - 4}
-								height={Math.abs(dateToY(rect.end) - dateToY(rect.start))}
+								width={dayWidth / 2 - 4}
+								height={rectHeight(rect.start, rect.end)}
 								fill={stringToColor(rect.entry?.process || rect.entry?.pid)}
 								fill-opacity="0.85"
 							/>
-							{#if rect.label && Math.abs(dateToY(rect.end) - dateToY(rect.start)) > 20}
+							{#if rect.label && rectHeight(rect.start, rect.end) > 20}
 								<text
 									x={2}
 									y={2}
@@ -627,10 +694,7 @@
 									fill="#222"
 									pointer-events="none"
 								>
-									{rect.label.slice(
-										0,
-										dayWidth / 8
-									)}{#if rect.label.length > (dayWidth / 8)}...{/if}
+									{rect.label.slice(0, dayWidth / 8)}{#if rect.label.length > dayWidth / 8}...{/if}
 								</text>
 							{/if}
 						</g>

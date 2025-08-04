@@ -199,24 +199,23 @@ const dayms = 24 * 60 * 60 * 1000;
  * @return {CalendarBlock[]}
  */
 function splitBlocksByDay(blocks) {
-    return blocks.flatMap((block) => {
-        let start = new Date(block.start);
-        const end = new Date(block.end);
+	return blocks.flatMap((block) => {
+		let start = new Date(block.start);
+		const end = new Date(block.end);
 
-        let r = [];
-        while (start < end) {
-            const sliceEnd = nextMidnight(start) - 1000; // 23:59:59 local
-            r.push({
-                ...block,
-                start: new Date(start),
-                end: new Date(Math.min(end.getTime(), sliceEnd))
-            });
-            start = new Date(sliceEnd + 1); // continue from the next ms
-        }
-        return r;
-    });
+		let r = [];
+		while (start < end) {
+			const sliceEnd = nextMidnight(start) - 1000; // 23:59:59 local
+			r.push({
+				...block,
+				start: new Date(start),
+				end: new Date(Math.min(end.getTime(), sliceEnd))
+			});
+			start = new Date(sliceEnd + 1); // continue from the next ms
+		}
+		return r;
+	});
 }
-
 
 /**
  * Maps calendar entries to SVG rectangles.
@@ -234,15 +233,15 @@ function getFocusedBlocks(entries, dateRange) {
 			entry.end || Math.min(Date.now(), dateRange[dateRange.length - 1].getTime() + dayms)
 		);
 
-        rects.push({
-            start: new Date(start),
-            end: new Date(end),
-            label: entry.title || entry.process || entry.path || entry.url || '',
-            entry
-        });
+		rects.push({
+			start: new Date(start),
+			end: new Date(end),
+			label: entry.title || entry.process || entry.path || entry.url || '',
+			entry
+		});
 	}
 
-    rects = splitBlocksByDay(rects);
+	rects = splitBlocksByDay(rects);
 	return rects;
 }
 
@@ -252,71 +251,69 @@ function getFocusedBlocks(entries, dateRange) {
  * @returns {Array<CalendarBlock>}
  */
 function getSystemBlocks(entries) {
-    /** @type {CalendarBlock[]} */
-    let rects = [];
-    let currentRect = null;
+	/** @type {CalendarBlock[]} */
+	let rects = [];
+	let currentRect = null;
 
-    for (const entry of entries) {
-        if(!entry.isIdle) {
-            if(currentRect) {
-                // If we already have a current rectangle, finalize it
-                rects.push(currentRect);
-                currentRect = null;
-            }
-        } else {
-            if (!currentRect) {
-                currentRect = {
-                    start: new Date(entry.start),
-                    end: new Date(),
-                    label: 'Idle',
-                };
-            }
+	for (const entry of entries) {
+		if (!entry.isIdle) {
+			if (currentRect) {
+				// If we already have a current rectangle, finalize it
+				rects.push(currentRect);
+				currentRect = null;
+			}
+		} else {
+			if (!currentRect) {
+				currentRect = {
+					start: new Date(entry.start),
+					end: new Date(),
+					label: 'Idle'
+				};
+			}
 
-            if(entry.end) {
-                currentRect.end = new Date(entry.end);
-            }
-        }
-    }
-    // If we have an open rectangle at the end, push it
-    if (currentRect) {
-        rects.push(currentRect);
-        currentRect = null;
-    }
-    
-    for(const entry of entries) {
-        if(!entry.sleepState || entry.sleepState === 'sleep_stop') {
-            if(currentRect) {
-                // If we already have a current rectangle, finalize it
-                rects.push(currentRect);
-                currentRect = null;
-            }
-        } else if(entry.sleepState === 'sleep_start') {
-            if (!currentRect) {
-                currentRect = {
-                    start: new Date(entry.start),
-                    end: new Date(),
-                    label: 'Sleep',
-                };
-            }
+			if (entry.end) {
+				currentRect.end = new Date(entry.end);
+			}
+		}
+	}
+	// If we have an open rectangle at the end, push it
+	if (currentRect) {
+		rects.push(currentRect);
+		currentRect = null;
+	}
 
-            if(entry.end) {
-                currentRect.end = new Date(entry.end);
-            }
-        }
-    }
-    if(currentRect) {
-        // If we have an open rectangle at the end, push it
-        rects.push(currentRect);
-        currentRect = null;
-    }
+	for (const entry of entries) {
+		if (!entry.sleepState || entry.sleepState === 'sleep_stop') {
+			if (currentRect) {
+				// If we already have a current rectangle, finalize it
+				rects.push(currentRect);
+				currentRect = null;
+			}
+		} else if (entry.sleepState === 'sleep_start') {
+			if (!currentRect) {
+				currentRect = {
+					start: new Date(entry.start),
+					end: new Date(),
+					label: 'Sleep'
+				};
+			}
 
+			if (entry.end) {
+				currentRect.end = new Date(entry.end);
+			}
+		}
+	}
+	if (currentRect) {
+		// If we have an open rectangle at the end, push it
+		rects.push(currentRect);
+		currentRect = null;
+	}
 
-    // Split the rectangles by day
-    rects = splitBlocksByDay(rects);
+	// Split the rectangles by day
+	rects = splitBlocksByDay(rects);
 
-    return rects;
+	return rects;
 }
-
 
 /**
  * Maps process entries to SVG elements
@@ -324,15 +321,39 @@ function getSystemBlocks(entries) {
  * @returns {Array<CalendarBlock>}
  */
 function getProcessBlocks(entries) {
+	/** @type {CalendarBlock[]} */
+	let rects = [];
+	for (const entry of entries) {
+		let start = new Date(entry.start);
+		let end = new Date(
+			entry.end ||
+				Math.min(Date.now(), entry.timestamps[entry.timestamps.length - 1].getTime() + dayms)
+		);
 
+		rects.push({
+			start: new Date(start),
+			end: new Date(end),
+			label: entry.name || entry.pid,
+			entry
+		});
+	}
+
+	rects = splitBlocksByDay(rects);
+	return rects;
 }
-
 
 /**
  * Maps sleep and idle system entries to SVG rectangles.
  * @param {Array<SystemEntry>} entries - Array of system entries.
- * 
+ *
  */
 
-
-export { consolidateProcessEntries, convertFocusedEntries, getFocusedBlocks,getSystemBlocks, convertSystemEntries, currentMidnight };
+export {
+	consolidateProcessEntries,
+	convertFocusedEntries,
+	getFocusedBlocks,
+	getSystemBlocks,
+	getProcessBlocks,
+	convertSystemEntries,
+	currentMidnight
+};
