@@ -303,7 +303,7 @@
 	let tooltip = $state({ visible: false, x: 0, align: 'left', y: 0, entry: null });
 
 	/**
-	 * 
+	 *
 	 * @param {number} mouseX
 	 * @param {number} mouseY
 	 * @returns {Date|null} The timestamp at the mouse position, or null if outside the calendar bounds.
@@ -435,7 +435,7 @@
 				subtitle:
 					entry.process ||
 					`${cpuFormatter.format(entry.cpu)}% CPU, ${memoryFormatter(entry.memory)} RAM`,
-				time: entry.time || entry.start,
+				time: entry.time || entry.start
 			};
 		}
 
@@ -462,21 +462,24 @@
 		tooltip = { visible: false, x: 0, y: 0, entry: null };
 	}
 
-	let focusedRects = $derived(getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange));
+	let focusedRects = $derived(
+		getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange)?.filter(
+			(rect) =>
+				rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
+				rect.end > dateRange[0]
+		)
+	);
 
 	let dayWidth = $derived((svgWidth - labelWidth) / dateRange.length);
 
 	/**
-	 * 
+	 *
 	 * @param {Date} date
 	 * @return {number} The x-coordinate for the date in the calendar view.
 	 */
 	function dateToX(date) {
 		const dayIndex = getDayIndex(date);
-		return (
-			labelWidth +
-			dayIndex * dayWidth
-		);
+		return labelWidth + dayIndex * dayWidth;
 	}
 
 	/**
@@ -502,8 +505,13 @@
 		return Math.abs(timeAxis(endMs) - timeAxis(startMs));
 	}
 
-
-	let systemRects = $derived(getSystemBlocks(systemEntries).filter(rect=>rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms && rect.end > dateRange[0]));
+	let systemRects = $derived(
+		getSystemBlocks(systemEntries).filter(
+			(rect) =>
+				rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
+				rect.end > dateRange[0]
+		)
+	);
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -516,31 +524,6 @@
 		onmouseleave={handleMouseLeaveTooltip}
 	>
 		<g transform={`translate(${labelWidth},0)`}></g>
-		<!-- Day labels -->
-		<g>
-			<rect x="0" y="0" width={labelWidth} height={labelHeight} fill="#f8f8f8" />
-			{#each dateRange as d, i}
-				<rect
-					x={labelWidth + i * ((svgWidth - labelWidth) / dateRange.length)}
-					y="0"
-					width={(svgWidth - labelWidth) / dateRange.length}
-					height={labelHeight}
-					fill="#f8f8f8"
-					stroke="#ddd"
-				/>
-				<text
-					x={labelWidth +
-						i * ((svgWidth - labelWidth) / dateRange.length) +
-						(svgWidth - labelWidth) / dateRange.length / 2}
-					y={labelHeight / 2 + 7}
-					text-anchor="middle"
-					font-size="14"
-					fill="#333"
-				>
-					{d.toLocaleDateString("en-SG", { weekday: 'short', month: 'numeric', day: 'numeric' })}
-				</text>
-			{/each}
-		</g>
 
 		<!-- Hour labels and grid -->
 		<g class="calendar-grid">
@@ -557,7 +540,7 @@
 		<g class="system-entries">
 			{#each systemRects as rect}
 				<rect
-					class:sleep={rect.label === "Sleep"}
+					class:sleep={rect.label === 'Sleep'}
 					x={dateToX(rect.start)}
 					y={dateToY(rect.start)}
 					width={dayWidth}
@@ -634,6 +617,43 @@
 				{/if}
 			{/each}
 		</g>
+
+		<!-- Current Time Marker -->
+		{#if dateRange[0] <= new Date() && new Date() <= dateRange[dateRange.length - 1]}
+			<g
+				class="current-time-marker"
+				transform={`translate(${dateToX(new Date())}, ${timeAxis(new Date().getTime() % dayms)})`}
+			>
+				<circle r="4" />
+				<line x1={0} y1={0} x2={dayWidth} y2={0} />
+			</g>
+		{/if}
+
+		<!-- Day labels -->
+		<g>
+			<rect x="0" y="0" width={labelWidth} height={labelHeight} fill="#f8f8f8" />
+			{#each dateRange as d, i}
+				<rect
+					x={labelWidth + i * ((svgWidth - labelWidth) / dateRange.length)}
+					y="0"
+					width={(svgWidth - labelWidth) / dateRange.length}
+					height={labelHeight}
+					fill="#f8f8f8"
+					stroke="#ddd"
+				/>
+				<text
+					x={labelWidth +
+						i * ((svgWidth - labelWidth) / dateRange.length) +
+						(svgWidth - labelWidth) / dateRange.length / 2}
+					y={labelHeight / 2 + 7}
+					text-anchor="middle"
+					font-size="14"
+					fill="#333"
+				>
+					{d.toLocaleDateString('en-SG', { weekday: 'short', month: 'numeric', day: 'numeric' })}
+				</text>
+			{/each}
+		</g>
 	</svg>
 	{#if tooltip.visible && tooltip.content}
 		<div
@@ -692,6 +712,19 @@
 
 		&.sleep {
 			fill: rgb(194, 194, 194);
+		}
+	}
+
+	.current-time-marker {
+		--current-time-marker-color: rgb(231, 40, 40);
+
+		circle {
+			fill: var(--current-time-marker-color);
+		}
+
+		line {
+			stroke: var(--current-time-marker-color);
+			stroke-width: 1;
 		}
 	}
 </style>

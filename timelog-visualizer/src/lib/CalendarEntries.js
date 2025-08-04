@@ -255,7 +255,7 @@ function getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange) {
 		);
 
 		while (start < end) {
-			const blockEnd = nextMidnight(start) - 1; // 23:59:59.999 local
+			const blockEnd = nextMidnight(start) - 1000; // 23:59:59 local
 
 			const dayIndex = getDayIndex(start);
 
@@ -362,7 +362,7 @@ function getSystemBlocks(entries) {
 
         let r = [];
         while (start < end) {
-            const sliceEnd = nextMidnight(start) - 1; // 23:59:59.999 local
+            const sliceEnd = nextMidnight(start) - 1000; // 23:59:59 local
             r.push({
                 ...rect,
                 start: new Date(start),

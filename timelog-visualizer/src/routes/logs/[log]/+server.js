@@ -40,11 +40,6 @@ export async function GET({ params, url }) {
 
 		selectClause = '';
 
-		const tagCols = ['pid', 'name'];
-		// selectClause += tagCols.map(col => `MODE(${col}) AS ${col}`).join(', ');
-		// selectClause += tagCols.map(col => `${col}`).join(', ');
-		// selectClause += ', ';
-
 		const aggCols = {
 			process: ['cpu', 'memory']
 		};
@@ -53,8 +48,6 @@ export async function GET({ params, url }) {
 		if (tableAggCols.length > 0) {
 			selectClause += tableAggCols.map((col) => `MEAN(${col}) AS ${col}`).join(', ');
 		}
-
-		groupBy = ` GROUP BY ${tagCols.map((col) => `${col}`).join(', ')}, time(${unit}s)`;
 
 		groupBy = ` GROUP BY time(${unit}s), *`;
 	}
@@ -109,6 +102,31 @@ export async function GET({ params, url }) {
 		return new Response('Error querying InfluxDB: ' + err, { status: 500 });
 	}
 
+	// Also get the last item just before the start time
+	let whereLast = '';
+	if (start) {
+		// Set the beforeStartLimit to 1 week before the start time
+		const beforeStartLimit = new Date(
+			new Date(start).getTime() - 7 * 24 * 60 * 60 * 1000
+		).toISOString();
+		whereLast = ` WHERE time < '${start}' AND time >= '${beforeStartLimit}'`;
+	}
+	const lastInfluxql = `SELECT ${selectClause} FROM "${table}"${whereLast} ORDER BY time DESC LIMIT 1`;
+	let lastResult;
+	try {
+		const lastUrlObj = new URL(INFLUX_URL);
+		lastUrlObj.pathname = '/query';
+		lastUrlObj.searchParams.set('db', INFLUX_DB);
+		lastUrlObj.searchParams.set('q', lastInfluxql);
+		const res = await fetch(lastUrlObj.toString());
+		if (!res.ok) {
+			throw new Error(await res.text());
+		}
+		lastResult = await res.json();
+	} catch (err) {
+		return new Response('Error querying InfluxDB for last item: ' + err, { status: 500 });
+	}
+
 	// Parse InfluxQL response
 	const series = result && result.results && result.results[0] && result.results[0].series;
 	if (!series || series.length === 0) {
@@ -118,20 +136,54 @@ export async function GET({ params, url }) {
 	}
 
 	const keys = [...Object.keys(series[0]?.tags || {}), ...series[0].columns];
-    const csv = [keys.join(',')];
-	for (let s of series) {
-        let values = s.values;
-        if(s.columns.indexOf('cpu') !== -1 || s.columns.indexOf('memory') !== -1) {
-            // Filter out rows where both cpu and memory are null
-            values = s.values.filter(v => v[s.columns.indexOf('cpu')] || v[s.columns.indexOf('memory')]);
-        }
-		if (format === 'csv') {
-			csv.push(...values.map((row) => [...Object.keys(series[0]?.tags || {}).map(tag=>s.tags[tag]), ...row.map((v) => JSON.stringify(v ?? ''))].join(',')));
+	const csv = [keys.join(',')];
+	if (lastResult && lastResult.results && lastResult.results[0] && lastResult.results[0].series) {
+		const lastSeries = lastResult.results[0].series[0];
+		if (lastSeries && lastSeries.values && lastSeries.values.length > 0) {
+			const lastRow = lastSeries.values[0];
+
+			// Map the indices of the tags and columns from keys
+			const tagIndices = Object.fromEntries(
+				Object.keys(lastSeries.tags || {}).map((tag, index) => [
+					tag,
+					index + keys.length - lastRow.length
+				])
+			);
+			const columnIndices = Object.fromEntries(
+				lastSeries.columns.map((col, index) => [col, index + Object.keys(series[0]?.tags || {}).length])
+			);
+
+			csv.push(
+				[
+					...Object.keys(series[0]?.tags || {}).map((tag) => lastSeries.tags ? lastSeries.tags[tag] : ''),
+					...series[0].columns.map((col) => JSON.stringify(lastSeries.values[0][columnIndices[col]] ?? ''))
+				].join(',')
+			);
 		}
 	}
-    if(format === 'csv') {
-			return new Response(csv.join('\n'), { headers: { 'Content-Type': 'text/csv' } });
-    }
+	for (let s of series) {
+		let values = s.values;
+		if (s.columns.indexOf('cpu') !== -1 || s.columns.indexOf('memory') !== -1) {
+			// Filter out rows where both cpu and memory are null
+			values = s.values.filter(
+				(v) => v[s.columns.indexOf('cpu')] || v[s.columns.indexOf('memory')]
+			);
+		}
+		if (format === 'csv') {
+			csv.push(
+				...values.map((row) =>
+					[
+						...Object.keys(series[0]?.tags || {}).map((tag) => s.tags[tag]),
+						...row.map((v) => JSON.stringify(v ?? ''))
+					].join(',')
+				)
+			);
+		}
+	}
+	if (format === 'csv') {
+		return new Response(csv.join('\n'), { headers: { 'Content-Type': 'text/csv' } });
+	}
 
+	console.error('Returning JSON response for log:', log);
 	return new Response(JSON.stringify(rows), { headers: { 'Content-Type': 'application/json' } });
 }
