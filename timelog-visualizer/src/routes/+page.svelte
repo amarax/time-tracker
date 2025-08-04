@@ -6,6 +6,7 @@
 		convertFocusedEntries,
 		convertSystemEntries
 	} from '$lib/CalendarEntries.js';
+	import { onMount } from 'svelte';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
@@ -86,17 +87,52 @@
 
 	let endDate = $derived(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000));
 
-	$effect(() => {
-		// Ensure the start date is always a Monday
-		load('focused', startDate, endDate).then((data) => {
+	// If the user didn't focus the tab for a while, reload the data when they switch back
+	let lastFocused = $state(Date.now());
+	const focusThreshold = 60 * 1000; // 1 minute
+	onMount(() => {
+		lastFocused = Date.now();
+
+		function handleFocus() {
+			if (Date.now() - lastFocused > focusThreshold) {
+				loadData(startDate, endDate);
+			}
+			lastFocused = Date.now();
+		}
+
+		window.addEventListener('focus', handleFocus);
+
+		return () => {
+			window.removeEventListener('focus', handleFocus);
+		};
+	});
+
+	/**
+	 * Load data for the specified time range.
+	 * @param {Date} start
+	 * @param {Date} end
+	 */
+	function loadData(start, end) {
+		function rangeNotValid() {
+			return start !== startDate || end !== endDate;
+		}
+
+		load('focused', start, end).then((data) => {
+			if (rangeNotValid()) return;
 			focusedEntries = data;
 		});
-		load('process', startDate, endDate).then((data) => {
+		load('process', start, end).then((data) => {
+			if (rangeNotValid()) return;
 			processEntries = data;
 		});
-		load('system', startDate, endDate).then((data) => {
+		load('system', start, end).then((data) => {
+			if (rangeNotValid()) return;
 			systemEntries = data;
 		});
+	}
+
+	$effect(() => {
+		loadData(startDate, endDate);
 	});
 
 	const formatDate = (date) => {
@@ -114,7 +150,9 @@
 <div class="container">
 	<h1>Time log viewer</h1>
 	<div class="week-nav">
-		<button aria-label="Today" onclick={() => startDate = setStartDateToMonday(new Date())}>Today</button>
+		<button aria-label="Today" onclick={() => (startDate = setStartDateToMonday(new Date()))}
+			>Today</button
+		>
 		<button aria-label="Previous week" onclick={() => offsetWeek(-1)}>&larr;</button>
 		<span class="week-label">{formatDate(startDate)} - {formatDate(endDate)}</span>
 		<button aria-label="Next week" onclick={() => offsetWeek(1)}>&rarr;</button>
@@ -166,7 +204,7 @@
 		cursor: pointer;
 		padding: 0.25em 0.75em;
 		border-radius: 0.25em;
-		transition: background 0.2s;
+		transition: 0.2s;
 	}
 	.week-nav button:hover {
 		background: #eee;
