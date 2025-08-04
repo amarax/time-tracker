@@ -137,18 +137,12 @@ export async function GET({ params, url }) {
 
 	const keys = [...Object.keys(series[0]?.tags || {}), ...series[0].columns];
 	const csv = [keys.join(',')];
-	if (lastResult && lastResult.results && lastResult.results[0] && lastResult.results[0].series) {
+	if (log !== 'process' && lastResult && lastResult.results && lastResult.results[0] && lastResult.results[0].series) {
 		const lastSeries = lastResult.results[0].series[0];
 		if (lastSeries && lastSeries.values && lastSeries.values.length > 0) {
 			const lastRow = lastSeries.values[0];
 
 			// Map the indices of the tags and columns from keys
-			const tagIndices = Object.fromEntries(
-				Object.keys(lastSeries.tags || {}).map((tag, index) => [
-					tag,
-					index + keys.length - lastRow.length
-				])
-			);
 			const columnIndices = Object.fromEntries(
 				lastSeries.columns.map((col, index) => [col, index + Object.keys(series[0]?.tags || {}).length])
 			);

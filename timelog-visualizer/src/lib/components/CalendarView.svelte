@@ -66,7 +66,7 @@
 	function handleScroll(event) {
 		const delta = event.deltaY;
 		const centerY = event.clientY - (container?.getBoundingClientRect().top ?? 0);
-		const centerHour = timeAxis.invert(centerY);
+		const centerHour = timeAxis.invert(centerY) + displayedHourStart;
 
 		// Scale factor: zoom in/out
 		let scaleFactor = 1 + delta / 500; // Prevent negative or zero range
@@ -151,12 +151,14 @@
 	});
 
 	function getProcessRects() {
-		/** @type {{x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry, cpuGraph:string}[]} */
+		/** @type {{start: Date, end: Date, x:number, y:number, width:number, height:number, label?:string, color?:string, entry:ProcessEntry, cpuGraph:string}[]} */
 		const rects = [];
 		for (let i = 0; i < processEntries.length; i++) {
 			const entry = processEntries[i];
 			const start = entry.start;
 			const end = entry.end;
+
+			if (!start || !end) continue;
 
 			// If the times are out of bounds for displayed hours, skip
 			if (
@@ -200,6 +202,8 @@
 				.defined((d) => !isNaN(d.mean));
 
 			rects.push({
+				start: entry.start,
+				end: entry.end,
 				x,
 				y,
 				width,
@@ -215,11 +219,13 @@
 		return rects;
 	}
 
+	let displayedTimeRange = $derived(displayedHourEnd - displayedHourStart);
+
 	// D3 Y-axis setup
 	let timeAxis = $derived.by(() => {
 		return d3
 			.scaleLinear()
-			.domain([displayedHourStart, displayedHourEnd])
+			.domain([0, displayedTimeRange])
 			.range([labelHeight, svgHeight - labelHeight]);
 	});
 
@@ -321,7 +327,7 @@
 		if (dayIdx >= dateRange.length) dayIdx = dateRange.length - 1;
 
 		// Find ms-of-day from y
-		let msOfDay = timeAxis.invert(svgY);
+		let msOfDay = timeAxis.invert(svgY + timeAxis(displayedHourStart));
 		return new Date(dateRange[dayIdx].getTime() + msOfDay - timeZoneOffset);
 	}
 
@@ -463,7 +469,7 @@
 	}
 
 	let focusedRects = $derived(
-		getFocusedBlocks(entries, timeAxis, svgWidth, labelWidth, dateRange)?.filter(
+		getFocusedBlocks(entries, timeAxis, dateRange)?.filter(
 			(rect) =>
 				rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
 				rect.end > dateRange[0]
@@ -512,6 +518,12 @@
 				rect.end > dateRange[0]
 		)
 	);
+
+	let processRects = $derived(getProcessRects().filter(
+		(rect) =>
+			rect.start.getTime() < dateRange[dateRange.length - 1].getTime() + dayms &&
+			rect.end > dateRange[0]
+	));
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -525,109 +537,114 @@
 	>
 		<g transform={`translate(${labelWidth},0)`}></g>
 
-		<!-- Hour labels and grid -->
-		<g class="calendar-grid">
-			{#each hourTicks as h, i (h.value)}
-				<g transform={`translate(0, ${timeAxis(h.value)})`}>
-					<line x1={labelWidth} y1="0" x2={svgWidth} y2="0" stroke="#ddd" stroke-width="1" />
-					<text x={labelWidth - 5} y="4" text-anchor="end" font-size="12" fill="#555">
-						{h.label}
-					</text>
-				</g>
-			{/each}
-		</g>
-
-		<g class="system-entries">
-			{#each systemRects as rect}
-				<rect
-					class:sleep={rect.label === 'Sleep'}
-					x={dateToX(rect.start)}
-					y={dateToY(rect.start)}
-					width={dayWidth}
-					height={rectHeight(rect.start, rect.end)}
-				/>
-			{/each}
-		</g>
-
-		<!-- Process Entries -->
-		<g class="process-entries">
-			{#each getProcessRects() as rect}
-				{#if rect.height > 1}
-					<rect
-						x={rect.x + 2}
-						y={rect.y + 2}
-						width={rect.width}
-						height={rect.height}
-						fill={rect.color || '#ffcc80'}
-						fill-opacity="0.3"
-					/>
-					<path
-						d={rect.cpuGraph}
-						fill={rect.color || '#ff9800'}
-						transform={`translate(${rect.x + 2}, 0)`}
-					/>
-					{#if rect.label && rect.height > 20}
-						<text
-							x={rect.x + 2}
-							y={rect.y + 2}
-							dy={8}
-							text-anchor="start"
-							font-size="8"
-							fill="#222"
-							pointer-events="none"
-						>
-							{rect.label.slice(
-								0,
-								(rect.width * 2) / 8
-							)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
+		<g transform={`translate(0,${-timeAxis(displayedHourStart)})`}>
+			<!-- Hour labels and grid -->
+			<g class="calendar-grid">
+				{#each hourTicks as h, i (h.value)}
+					<g transform={`translate(0, ${timeAxis(h.value)})`}>
+						<line x1={labelWidth} y1="0" x2={svgWidth} y2="0" stroke="#ddd" stroke-width="1" />
+						<text x={labelWidth - 5} y="4" text-anchor="end" font-size="12" fill="#555">
+							{h.label}
 						</text>
-					{/if}
-				{/if}
-			{/each}
-		</g>
-
-		<!-- Entries -->
-		<g class="entries">
-			{#each focusedRects as rect}
-				{#if rect.height > 1}
-					<rect
-						x={rect.x + 2}
-						y={rect.y + 2}
-						width={rect.width}
-						height={rect.height}
-						fill={stringToColor(rect.entry.process || rect.entry.pid)}
-						fill-opacity="0.85"
-					/>
-					{#if rect.label && rect.height > 20}
-						<text
-							x={rect.x + 2}
-							y={rect.y + 2}
-							dy={8}
-							text-anchor="start"
-							font-size="8"
-							fill="#222"
-							pointer-events="none"
-						>
-							{rect.label.slice(
-								0,
-								(rect.width * 2) / 8
-							)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
-						</text>
-					{/if}
-				{/if}
-			{/each}
-		</g>
-
-		<!-- Current Time Marker -->
-		{#if dateRange[0] <= new Date() && new Date() <= dateRange[dateRange.length - 1]}
-			<g
-				class="current-time-marker"
-				transform={`translate(${dateToX(new Date())}, ${timeAxis(new Date().getTime() % dayms)})`}
-			>
-				<circle r="4" />
-				<line x1={0} y1={0} x2={dayWidth} y2={0} />
+					</g>
+				{/each}
 			</g>
-		{/if}
+
+			<g class="system-entries">
+				{#each systemRects as rect}
+					<rect
+						class:sleep={rect.label === 'Sleep'}
+						width={dayWidth}
+						height={rectHeight(rect.start, rect.end)}
+						transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}
+					/>
+				{/each}
+			</g>
+
+			<!-- Process Entries -->
+			<g class="process-entries">
+				{#each processRects as rect}
+					<g transform={`translate(${rect.x}, ${dateToY(rect.start)})`}>
+						{#if rect.height > 1}
+							<rect
+								x={2}
+								y={2}
+								width={rect.width}
+								height={rect.height}
+								fill={rect.color || '#ffcc80'}
+								fill-opacity="0.3"
+							/>
+							<path
+								d={rect.cpuGraph}
+								fill={rect.color || '#ff9800'}
+								transform={`translate(2, -${dateToY(rect.start)})`}
+							/>
+							{#if rect.label && rect.height > 20}
+								<text
+									x={2}
+									y={2}
+									dy={8}
+									text-anchor="start"
+									font-size="8"
+									fill="#222"
+									pointer-events="none"
+								>
+									{rect.label.slice(
+										0,
+										(rect.width * 2) / 8
+									)}{#if rect.label.length > (rect.width * 2) / 8}...{/if}
+								</text>
+							{/if}
+						{/if}
+					</g>
+				{/each}
+			</g>
+
+			<!-- Entries -->
+			<g class="entries">
+				{#each focusedRects as rect}
+					{#if rect.height > 1}
+						<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
+							<rect
+								x={2}
+								y={2}
+								width={dayWidth/2 - 4}
+								height={rect.height}
+								fill={stringToColor(rect.entry.process || rect.entry.pid)}
+								fill-opacity="0.85"
+							/>
+							{#if rect.label && rect.height > 20}
+								<text
+									x={2}
+									y={2}
+									dy={8}
+									text-anchor="start"
+									font-size="8"
+									fill="#222"
+									pointer-events="none"
+								>
+									{rect.label.slice(
+										0,
+										dayWidth / 8
+									)}{#if rect.label.length > (dayWidth / 8)}...{/if}
+								</text>
+							{/if}
+						</g>
+					{/if}
+				{/each}
+			</g>
+
+			<!-- Current Time Marker -->
+			{#if dateRange[0] <= new Date() && new Date() <= dateRange[dateRange.length - 1]}
+				<g
+					class="current-time-marker"
+					transform={`translate(${dateToX(new Date())}, ${timeAxis(new Date().getTime() % dayms)})`}
+				>
+					<circle r="4" />
+					<line x1={0} y1={0} x2={dayWidth} y2={0} />
+				</g>
+			{/if}
+		</g>
 
 		<!-- Day labels -->
 		<g>
