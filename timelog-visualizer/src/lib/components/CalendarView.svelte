@@ -543,6 +543,18 @@
 			);
 		})
 	);
+
+	let timeNow = $state(new Date());
+
+	onMount(() => {
+		// Periodically update the current time while the window is focused
+		const interval = setInterval(() => {
+			if (document.hasFocus()) {
+				timeNow = new Date();
+			}
+		}, 1000);
+		return () => clearInterval(interval);
+	});
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -647,10 +659,10 @@
 			</g>
 
 			<!-- Current Time Marker -->
-			{#if dateRange[0] <= new Date() && new Date() <= dateRange[dateRange.length - 1]}
+			{#if dateRange[0] <= timeNow && timeNow <= dateRange[dateRange.length - 1]}
 				<g
 					class="current-time-marker"
-					transform={`translate(${dateToX(new Date())}, ${timeAxis(new Date().getTime() % dayms)})`}
+					transform={`translate(${dateToX(timeNow)}, ${dateToY(timeNow)})`}
 				>
 					<circle r="4" />
 					<line x1={0} y1={0} x2={dayWidth} y2={0} />
