@@ -6,7 +6,7 @@
   "scripts": {
     "prestart": "node scripts/setup-influx.js",
     "start": "concurrently -n DB,APP -c yellow,cyan \"npm run influx\" \"node src/index.js\"",
-    "influx": "influxdb\\bin\\influxdb3.exe serve  --without-auth --object-store file --data-dir influxdb\\data --node-id dev --http-bind 127.0.0.1:8086"
+    "influx": "influxdb\\bin\\influxdb3.exe serve --query-file-limit 1000 --without-auth --object-store file --data-dir influxdb\\data --node-id dev --http-bind 127.0.0.1:8086"
   },
   "dependencies": {
     "@influxdata/influxdb3-client": "^1.2.0",

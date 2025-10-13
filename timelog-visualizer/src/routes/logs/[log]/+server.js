@@ -102,29 +102,31 @@ export async function GET({ params, url }) {
 		return new Response('Error querying InfluxDB: ' + err, { status: 500 });
 	}
 
-	// Also get the last item just before the start time
-	let whereLast = '';
-	if (start) {
-		// Set the beforeStartLimit to 1 week before the start time
-		const beforeStartLimit = new Date(
-			new Date(start).getTime() - 7 * 24 * 60 * 60 * 1000
-		).toISOString();
-		whereLast = ` WHERE time < '${start}' AND time >= '${beforeStartLimit}'`;
-	}
-	const lastInfluxql = `SELECT ${selectClause} FROM "${table}"${whereLast} ORDER BY time DESC LIMIT 1`;
 	let lastResult;
-	try {
-		const lastUrlObj = new URL(INFLUX_URL);
-		lastUrlObj.pathname = '/query';
-		lastUrlObj.searchParams.set('db', INFLUX_DB);
-		lastUrlObj.searchParams.set('q', lastInfluxql);
-		const res = await fetch(lastUrlObj.toString());
-		if (!res.ok) {
-			throw new Error(await res.text());
+	if(log !== 'process') {
+		// Also get the last item just before the start time
+		let whereLast = '';
+		if (start) {
+			// Set the beforeStartLimit to 1 days before the start time
+			const beforeStartLimit = new Date(
+				new Date(start).getTime() - 1 * 24 * 60 * 60 * 1000
+			).toISOString();
+			whereLast = ` WHERE time < '${start}' AND time >= '${beforeStartLimit}'`;
 		}
-		lastResult = await res.json();
-	} catch (err) {
-		return new Response('Error querying InfluxDB for last item: ' + err, { status: 500 });
+		const lastInfluxql = `SELECT ${selectClause} FROM "${table}"${whereLast} ORDER BY time DESC LIMIT 1`;
+		try {
+			const lastUrlObj = new URL(INFLUX_URL);
+			lastUrlObj.pathname = '/query';
+			lastUrlObj.searchParams.set('db', INFLUX_DB);
+			lastUrlObj.searchParams.set('q', lastInfluxql);
+			const res = await fetch(lastUrlObj.toString());
+			if (!res.ok) {
+				throw new Error(await res.text());
+			}
+			lastResult = await res.json();
+		} catch (err) {
+			return new Response('Error querying InfluxDB for last item: ' + err, { status: 500 });
+		}
 	}
 
 	// Parse InfluxQL response
@@ -137,7 +139,7 @@ export async function GET({ params, url }) {
 
 	const keys = [...Object.keys(series[0]?.tags || {}), ...series[0].columns];
 	const csv = [keys.join(',')];
-	if (log !== 'process' && lastResult && lastResult.results && lastResult.results[0] && lastResult.results[0].series) {
+	if (lastResult && lastResult.results && lastResult.results[0] && lastResult.results[0].series) {
 		const lastSeries = lastResult.results[0].series[0];
 		if (lastSeries && lastSeries.values && lastSeries.values.length > 0) {
 			const lastRow = lastSeries.values[0];
