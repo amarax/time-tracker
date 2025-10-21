@@ -9,6 +9,7 @@
 	import { onMount } from 'svelte';
 	import TimeRangeSelector from '$lib/components/TimeRangeSelector.svelte';
 	import { formatDate, setStartDateToMonday } from '$lib/DateHelpers';
+	import { on } from 'svelte/events';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
@@ -75,21 +76,12 @@
 	// If the user didn't focus the tab for a while, reload the data when they switch back
 	let lastFocused = $state(Date.now());
 	const focusThreshold = 60 * 1000; // 1 minute
-	onMount(() => {
-		lastFocused = Date.now();
-
-		function handleFocus() {
-			if (Date.now() - lastFocused > focusThreshold) {
-				loadData(startDate, endDate);
-			}
-			lastFocused = Date.now();
+	on(window, 'focus', () => {
+		let isInTimeRange = startDate <= new Date() && endDate >= new Date();
+		if (isInTimeRange && Date.now() - lastFocused > focusThreshold) {
+			loadData(startDate, endDate);
 		}
-
-		window.addEventListener('focus', handleFocus);
-
-		return () => {
-			window.removeEventListener('focus', handleFocus);
-		};
+		lastFocused = Date.now();
 	});
 
 	/**
