@@ -6,7 +6,6 @@
 		convertFocusedEntries,
 		convertSystemEntries
 	} from '$lib/CalendarEntries.js';
-	import { onMount } from 'svelte';
 	import TimeRangeSelector from '$lib/components/TimeRangeSelector.svelte';
 	import { formatDate, setStartDateToMonday } from '$lib/DateHelpers';
 	import { on } from 'svelte/events';
