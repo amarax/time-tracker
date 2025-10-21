@@ -41,7 +41,7 @@
 		let e = rows.map((entry, i) => ({
 			...entry,
 			time: entry.time,
-			end: rows[i + 1]?.time // Use the next entry's time as the end time, or the same time if it's the last entry
+			end: rows[i + 1]?.time // Use the next entry's time as the end time, or undefined if it's the last entry
 		}));
 
 		const DAY = 86_400_000; // ms in a day

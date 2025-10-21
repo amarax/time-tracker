@@ -19,13 +19,13 @@ const client = new InfluxDBClient({ host: INFLUX_URL, token: INFLUX_TOKEN });
 const LOG_DIR = path.join(process.cwd(), "logs");
 const POLL_INTERVAL = 60000; // 1 second for demo, change to 60000 for 1 min
 const PROCESS_SUBSTRINGS =
-    process.env.MONITOR_PROCESS_SUBSTRINGS?.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean) || [];
+  process.env.MONITOR_PROCESS_SUBSTRINGS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) || [];
 const OPEN_WINDOW_PATH_SUBSTRINGS =
-    process.env.OPEN_WINDOW_PATH_SUBSTRINGS?.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean) || [];
+  process.env.OPEN_WINDOW_PATH_SUBSTRINGS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) || [];
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
@@ -67,13 +67,21 @@ async function logProcessStates(processStates) {
   }
 }
 
-// Write system state to InfluxDB
+/**
+ * Write system state to InfluxDB
+ * @param {boolean} isIdle
+ * @param {string|boolean} sleepState
+ * @param {string} [customTimestamp] - optional ISO timestamp
+ */
 async function logSystemState(isIdle, sleepState, customTimestamp) {
   try {
     const pt = Point.measurement("system") // match API measurement name
       .setBooleanField("isIdle", !!isIdle)
-      .setTag("sleepState", String(sleepState)) // sleepState as tag per schema
       .setTimestamp(customTimestamp ? new Date(customTimestamp) : new Date());
+
+    if (sleepState !== false) {
+      pt.setTag("sleepState", String(sleepState));
+    }
     await client.write(pt, INFLUX_BUCKET);
   } catch (e) {
     console.error("Failed to write system state to InfluxDB:", e);
@@ -82,28 +90,28 @@ async function logSystemState(isIdle, sleepState, customTimestamp) {
 
 /**
  * Log information about open windows to InfluxDB
- * @param {*} openWindows 
+ * @param {*} openWindows
  */
 async function logOpenWindows(openWindows) {
-    const timestamp = new Date();
+  const timestamp = new Date();
 
-    // console.log(openWindows); 
-    return;
+  // console.log(openWindows);
+  return;
 
-    if (!openWindows || openWindows.length === 0) return;
-    try {
-        for (const win of openWindows) {
-        const pt = Point.measurement("open_window") // match API measurement name
-            .setTag("process", win.owner?.name || "")
-            .setTag("path", win.owner?.path || "")
-            .setTag("title", win.title || "") // title as tag to match schema
-            .setIntegerField("dummy", 0)
-            .setTimestamp(timestamp);
-        await client.write(pt, INFLUX_BUCKET);
-        }
-    } catch (e) {
-        console.error("Failed to write open windows to InfluxDB:", e);
+  if (!openWindows || openWindows.length === 0) return;
+  try {
+    for (const win of openWindows) {
+      const pt = Point.measurement("open_window") // match API measurement name
+        .setTag("process", win.owner?.name || "")
+        .setTag("path", win.owner?.path || "")
+        .setTag("title", win.title || "") // title as tag to match schema
+        .setIntegerField("dummy", 0)
+        .setTimestamp(timestamp);
+      await client.write(pt, INFLUX_BUCKET);
     }
+  } catch (e) {
+    console.error("Failed to write open windows to InfluxDB:", e);
+  }
 }
 
 let lastFocused = undefined;
@@ -156,97 +164,94 @@ async function getProcessStates() {
   return states;
 }
 
-
 async function getOpenWindows() {
-    if (OPEN_WINDOW_PATH_SUBSTRINGS.length === 0) return [];
-    try {
-        let wins = await openWindows();
-        wins = wins.filter((win) =>
-            OPEN_WINDOW_PATH_SUBSTRINGS.some(
-                (sub) => win.owner?.path?.includes(sub)
-            )
-        );
-        return wins;
-    } catch (e) {
-        return [];
-    }
+  if (OPEN_WINDOW_PATH_SUBSTRINGS.length === 0) return [];
+  try {
+    let wins = await openWindows();
+    wins = wins.filter((win) =>
+      OPEN_WINDOW_PATH_SUBSTRINGS.some((sub) => win.owner?.path?.includes(sub))
+    );
+    return wins;
+  } catch (e) {
+    return [];
+  }
 }
 
 async function poll() {
-    try {
-        const now = Date.now();
-        let sleepState = false;
-        if (now - lastPollTime > POLL_INTERVAL * 2) {
-            sleepState = true;
-        }
-        if (sleepState && !lastSleepState) {
-            await logSystemState(
-                lastIdleState,
-                "sleep_start",
-                new Date(lastPollTime).toISOString()
-            );
-            lastSleepStart = lastPollTime;
-        }
-        if (!sleepState && lastSleepState && lastSleepStart) {
-            await logSystemState(
-                lastIdleState,
-                "sleep_stop",
-                new Date(now).toISOString()
-            );
-            lastSleepStart = null;
-        }
-
-        lastPollTime = now;
-        const idleSeconds = desktopIdle.getIdleTime();
-        const idleState = idleSeconds >= IDLE_THRESHOLD;
-        if (idleState !== lastIdleState || sleepState !== lastSleepState) {
-            if (!sleepState && !lastSleepState) {
-                await logSystemState(idleState, sleepState);
-            }
-            lastIdleState = idleState;
-            lastSleepState = sleepState;
-        }
-
-        // Log focused window
-        const focused = await getFocusedWindow();
-        const processStates = await getProcessStates();
-        if (JSON.stringify(focused) !== JSON.stringify(lastFocused)) {
-            await logFocusedWindow(focused);
-            lastFocused = focused;
-        }
-
-        // Log open windows
-        const openWins = await getOpenWindows();
-        if (openWins.length > 0) {
-            await logOpenWindows(openWins);
-        }
-
-        // Log process states
-        for (const pid in processStates) {
-            const prev = lastProcessStates[pid];
-            const curr = processStates[pid];
-            if (!prev || JSON.stringify(prev) !== JSON.stringify(curr)) {
-                await logProcessStates({ [pid]: curr });
-            }
-        }
-        lastProcessStates = processStates;
-    } catch (err) {
-        console.error("Error in poll:", err);
+  try {
+    const now = Date.now();
+    let sleepState = false;
+    if (now - lastPollTime > POLL_INTERVAL * 2) {
+      sleepState = true;
     }
+    if (sleepState && !lastSleepState) {
+      await logSystemState(
+        lastIdleState,
+        "sleep_start",
+        new Date(lastPollTime).toISOString()
+      );
+      lastSleepStart = lastPollTime;
+    }
+    if (!sleepState && lastSleepState && lastSleepStart) {
+      await logSystemState(
+        lastIdleState,
+        "sleep_stop",
+        new Date(now).toISOString()
+      );
+      lastSleepStart = null;
+    }
+
+    lastPollTime = now;
+    const idleSeconds = desktopIdle.getIdleTime();
+    const idleState = idleSeconds >= IDLE_THRESHOLD;
+    if (idleState !== lastIdleState || sleepState !== lastSleepState) {
+      if (!sleepState && !lastSleepState) {
+        await logSystemState(idleState, sleepState);
+      }
+      lastIdleState = idleState;
+      lastSleepState = sleepState;
+    }
+
+    // Log focused window
+    const focused = await getFocusedWindow();
+    const processStates = await getProcessStates();
+    if (JSON.stringify(focused) !== JSON.stringify(lastFocused)) {
+      await logFocusedWindow(focused);
+      lastFocused = focused;
+    }
+
+    // Log open windows
+    const openWins = await getOpenWindows();
+    if (openWins.length > 0) {
+      await logOpenWindows(openWins);
+    }
+
+    // Log process states
+    for (const pid in processStates) {
+      const prev = lastProcessStates[pid];
+      const curr = processStates[pid];
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(curr)) {
+        await logProcessStates({ [pid]: curr });
+      }
+    }
+    lastProcessStates = processStates;
+  } catch (err) {
+    console.error("Error in poll:", err);
+  }
 }
 
 // Ensure data is flushed on exit
 process.on("SIGINT", async () => {
-    try {
-        await writeApi.close();
-        console.log("InfluxDB writeApi closed.");
-    } catch (e) {
-        console.error("Error closing InfluxDB writeApi:", e);
-    }
-    process.exit();
+  try {
+    await writeApi.close();
+    console.log("InfluxDB writeApi closed.");
+  } catch (e) {
+    console.error("Error closing InfluxDB writeApi:", e);
+  }
+  process.exit();
 });
 
 if (process.env.MONITOR_CHILD === "1" || !process.env.MONITOR_CHILD) {
-    setInterval(() => poll(), POLL_INTERVAL);
-    console.log("Node Process Monitor started.");
+  setInterval(() => poll(), POLL_INTERVAL);
+  console.log("Node Process Monitor started.");
 }

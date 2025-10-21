@@ -43,7 +43,7 @@
  * @typedef {Object} SystemEntryRaw
  * @property {string} time - ISO string representing the start time of the entry
  * @property {'true'|'false'} isIdle - Whether the system was idle
- * @property {'sleep_start'|'sleep_stop'|'false'} sleepState - Sleep state of the system
+ * @property {'sleep_start'|'sleep_stop'|'false'|""} sleepState - Sleep state of the system
  * @property {string} [end] - ISO string representing the end time of the entry
  */
 
@@ -52,7 +52,7 @@
  * @property {Date} start - Start time of the entry
  * @property {Date} [end] - End time of the entry
  * @property {boolean} isIdle - Whether the system was idle
- * @property {'sleep_start'|'sleep_stop'|false} sleepState - Sleep state of the system
+ * @property {'sleep_start'|'sleep_stop'} [sleepState] - Sleep state of the system
  */
 
 /**
@@ -129,9 +129,9 @@ function convertFocusedEntries(entries) {
 function convertSystemEntries(entries) {
 	return entries.map((e) => ({
 		start: new Date(e.time),
-		end: e.end && new Date(e.end),
+		end: e.end ? new Date(e.end) : undefined,
 		isIdle: e.isIdle === 'true',
-		sleepState: e.sleepState === 'false' ? false : e.sleepState
+		sleepState: e.sleepState === 'false' || e.sleepState === "" ? undefined : e.sleepState
 	}));
 }
 
@@ -149,7 +149,11 @@ const fullFmt = new Intl.DateTimeFormat('en-US', {
 	second: '2-digit'
 });
 
-// Get zone offset (ms) for a given UTC timestamp
+/**
+ *  Get zone offset (ms) for a given UTC timestamp
+ * @param {number} ts - UTC timestamp
+ * @returns {number} - Offset in milliseconds (positive east of UTC)
+ */
 const offset = (ts) => {
 	const parts = Object.fromEntries(
 		fullFmt
@@ -168,7 +172,11 @@ const offset = (ts) => {
 	return localEpoch - ts; // positive east of UTC
 };
 
-// UTC timestamp of the next local midnight after ts
+/** 
+ * UTC timestamp of the next local midnight after ts
+ * @param {number|Date} ts - UTC timestamp
+ * @returns {number} - UTC timestamp of next local midnight
+ */
 const nextMidnight = (ts) => {
 	const date = new Date(ts);
 
@@ -176,6 +184,11 @@ const nextMidnight = (ts) => {
 	return baseUTC - offset(baseUTC); // shift back to local midnight in UTC
 };
 
+/**
+ * UTC timestamp of the current local midnight at ts
+ * @param {number|Date} ts - UTC timestamp
+ * @returns {number} - UTC timestamp of current local midnight
+ */
 const currentMidnight = (ts) => {
 	let date = new Date(ts);
 
@@ -283,9 +296,23 @@ function getSystemBlocks(entries) {
 	}
 
 	for (const entry of entries) {
-		if (!entry.sleepState || entry.sleepState === 'sleep_stop') {
+		if (!entry.sleepState) {
+			// Ignore
+			continue;
+		} else if (entry.sleepState === 'sleep_stop') {
 			if (currentRect) {
 				// If we already have a current rectangle, finalize it
+				rects.push(currentRect);
+				currentRect = null;
+			} else {
+				let end = new Date(entry.end ?? entry.start);
+				// Create a sleep block from unknown start (one week before end) to this end
+				
+				currentRect = {
+					start: new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000),
+					end,
+					label: 'Sleep'
+				};
 				rects.push(currentRect);
 				currentRect = null;
 			}
