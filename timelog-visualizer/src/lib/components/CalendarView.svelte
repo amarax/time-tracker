@@ -7,6 +7,7 @@
 		getProcessBlocks,
 		getSystemBlocks
 	} from '$lib/CalendarEntries';
+	import CalendarViewTooltip from './CalendarViewTooltip.svelte';
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
@@ -228,8 +229,24 @@
 		}
 	}
 
-	// Tooltip state
-	let tooltip = $state({ visible: false, x: 0, align: 'left', y: 0, entry: null });
+	/**
+	 * @typedef {Object} Tooltip
+	 * @property {true} visible - Whether the tooltip is visible
+	 * @property {number} x - The x position of the tooltip
+	 * @property {string} align - The alignment of the tooltip ('left' or 'right')
+	 * @property {number} y - The y position of the tooltip
+	 * @property {any} [content] - The content of the tooltip
+	*/
+
+	/**
+	 * @typedef {Object} NoTooltip
+	 * @property {false} visible - Whether the tooltip is visible
+	 */
+
+	/**
+	 * @type {Tooltip|NoTooltip}
+	 */
+	let tooltip = $state({ visible: false, x: 0, align: 'left', y: 0 });
 
 	/**
 	 *
@@ -403,7 +420,7 @@
 				content
 			};
 		} else {
-			tooltip = { visible: false, x: 0, y: 0, content };
+			tooltip = { visible: false };
 		}
 	}
 
@@ -425,6 +442,7 @@
 				rect.end > dateRange[0]
 		)
 	);
+
 
 	let dayWidth = $derived((svgWidth - labelWidth) / dateRange.length);
 
@@ -749,23 +767,7 @@
 		</g>
 	</svg>
 	{#if tooltip.visible && tooltip.content}
-		<div
-			class="calendar-tooltip"
-			style="position:fixed; {tooltip.align}:{tooltip.x -
-				8}px; top:{tooltip.y}px; z-index:1000; pointer-events:none;"
-		>
-			<div
-				style="background:#fff; border:1px solid #bbb; border-radius:4px; padding:8px 12px; box-shadow:0 2px 8px #0002; font-size:13px; min-width:180px; max-width:320px;"
-			>
-				<div>
-					<b>{tooltip.content.title}</b>
-				</div>
-				<div style="color:#666; font-size:12px;">{tooltip.content.subtitle}</div>
-				<div style="color:#888; font-size:12px;">
-					{new Date(tooltip.content.time).toLocaleString()}
-				</div>
-			</div>
-		</div>
+		<CalendarViewTooltip {tooltip} />
 	{/if}
 </div>
 
@@ -784,15 +786,6 @@
 
 	.calendar-grid text {
 		fill: var(--calendar-fg-color);
-	}
-
-	.calendar-tooltip {
-		pointer-events: none;
-		user-select: none;
-	}
-
-	.calendar-tooltip {
-		font-family: Roboto, sans-serif;
 	}
 
 	.system-entries rect {
