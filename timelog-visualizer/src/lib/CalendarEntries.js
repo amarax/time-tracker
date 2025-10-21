@@ -305,7 +305,7 @@ function getSystemBlocks(entries) {
 				rects.push(currentRect);
 				currentRect = null;
 			} else {
-				let end = new Date(entry.end ?? entry.start);
+				let end = new Date(entry.start);
 				// Create a sleep block from unknown start (one week before end) to this end
 				
 				currentRect = {

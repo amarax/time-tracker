@@ -107,9 +107,9 @@ export async function GET({ params, url }) {
 		// Also get the last item just before the start time
 		let whereLast = '';
 		if (start) {
-			// Set the beforeStartLimit to 1 days before the start time
+			// Set the beforeStartLimit to 7 days before the start time
 			const beforeStartLimit = new Date(
-				new Date(start).getTime() - 1 * 24 * 60 * 60 * 1000
+				new Date(start).getTime() - 7 * 24 * 60 * 60 * 1000
 			).toISOString();
 			whereLast = ` WHERE time < '${start}' AND time >= '${beforeStartLimit}'`;
 		}
