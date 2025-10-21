@@ -191,6 +191,7 @@ async function poll() {
         new Date(lastPollTime).toISOString()
       );
       lastSleepStart = lastPollTime;
+      lastSleepState = sleepState;
     }
     if (!sleepState && lastSleepState && lastSleepStart) {
       await logSystemState(
@@ -199,17 +200,18 @@ async function poll() {
         new Date(now).toISOString()
       );
       lastSleepStart = null;
+      lastSleepState = sleepState;
     }
-
     lastPollTime = now;
+
     const idleSeconds = desktopIdle.getIdleTime();
     const idleState = idleSeconds >= IDLE_THRESHOLD;
-    if (idleState !== lastIdleState || sleepState !== lastSleepState) {
-      if (!sleepState && !lastSleepState) {
-        await logSystemState(idleState, sleepState);
+    if (idleState !== lastIdleState) {
+      if(!sleepState) {
+        // This is potentially tricky because the sleep state could have changed during the idle period
+        await logSystemState(idleState, sleepState, new Date(now - idleSeconds * 1000).toISOString());
       }
       lastIdleState = idleState;
-      lastSleepState = sleepState;
     }
 
     // Log focused window
