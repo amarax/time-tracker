@@ -8,6 +8,7 @@
 		getSystemBlocks
 	} from '$lib/CalendarEntries';
 	import CalendarViewTooltip from './CalendarViewTooltip.svelte';
+
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
 	 * @typedef {import('$lib/CalendarEntries').ProcessEntryBlock} ProcessEntryBlock
@@ -16,17 +17,18 @@
 	 */
 
 	/**
-	 * CalendarView component props.
-	 * @type {{
-	 * 	entries?: Array<FocusedEntry>,
-	 * 	processEntries?: Array<ProcessEntryBlock>,
-	 * 	systemEntries?: Array<SystemEntry>,
-	 * 	startDate?: Date|null,
-	 * 	days?: number,
-	 * 	hourStart?: number,
-	 * 	hourEnd?: number
-	 * }}
-	 */
+	 * @typedef {Object} Props
+	 * @property {Array<FocusedEntry>} [entries] List of focused entries to display
+	 * @property {Array<ProcessEntryBlock>} [processEntries] List of process entries to display
+	 * @property {Array<SystemEntry>} [systemEntries] List of system entries to display
+	 * @property {Date|null} [startDate] The start date of the calendar view
+	 * @property {number} [days] Number of days to display
+	 * @property {number} [hourStart] Start hour of the day (0-24)
+	 * @property {number} [hourEnd] End hour of the day (0-24)
+	 * @property {string[]} [highlightTerms] Text to highlight in entries
+	*/
+
+	/** @type {Props} */
 	const {
 		entries = [],
 		processEntries = [],
@@ -34,7 +36,8 @@
 		startDate = null,
 		days = 7,
 		hourStart = 0,
-		hourEnd = 24
+		hourEnd = 24,
+		highlightTerms
 	} = $props();
 
 	let dateRange = $derived.by(() => {
@@ -306,7 +309,7 @@
 		const dayXMid = dayXStart + dayWidth / 2;
 		// If mouseX is outside the day range, return null
 		if (svgX <= dayXMid) {
-			for (let entry of entries) {
+			for (let entry of entries.filter(e=>isHighlighted(e)!==false)) {
 				const start = new Date(entry.start);
 				const end = entry.end ? new Date(entry.end) : new Date();
 				if (hoverTimeStamp < start || hoverTimeStamp > end) continue;
@@ -325,7 +328,7 @@
 			).map(([name]) => name));
 
 			// Search process entries
-			for (let entry of processEntries) {
+			for (let entry of processEntries.filter(e=>isHighlighted(e)!==false)) {
 				if (!uniqueProcessNames.has(getUniqueProcessName(entry))) continue;
 
 				const start = entry.start;
@@ -625,6 +628,37 @@
 		return () => clearInterval(interval);
 	});
 
+	/**
+	 * Determines if an entry matches the highlight text.
+	 * @param {FocusedEntry|ProcessEntryBlock|SystemEntry|undefined} entry
+	 * @returns {boolean|null} True if the entry matches the highlight, false if not, or null if highlight is not set.
+	 */
+	function isHighlighted(entry) {
+		if (!highlightTerms) return null;
+
+		if(!entry) return false;
+
+		// Check if entry matches highlight
+		const nameMatch = !!entry.name && highlightTerms.some(term => entry.name.toLowerCase().includes(term));
+		const titleMatch = !!entry.title && highlightTerms.some(term => entry.title.toLowerCase().includes(term));
+		const pathMatch = !!entry.path && highlightTerms.some(term => entry.path.toLowerCase().includes(term));
+		const processMatch = !!entry.process && highlightTerms.some(term => entry.process.toLowerCase().includes(term));
+
+		return nameMatch || titleMatch || pathMatch || processMatch;
+	}
+
+	/**
+	 * Determines the opacity of an entry based on whether it matches the highlight text.
+	 * @param {CalendarBlock} rect - The entry to check.
+	 * @returns {number} The opacity value (1 for match, 0.2 for no match).
+	 */
+	function highlightToOpacity(rect) {
+		let match = isHighlighted(rect.entry);
+		if (match === null) return 1; // No highlight set
+
+		return match ? 1 : 0.2;
+	}
+
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -654,6 +688,7 @@
 				{#each processRects as rect, i}
 					<g
 						transform={`translate(${dateToX(rect.start) + dayWidth / 2 + processToXOffset(getUniqueProcessName(rect.entry))}, ${dateToY(rect.start)})`}
+						opacity={highlightToOpacity(rect)}
 					>
 						<rect
 							x={2}
@@ -691,7 +726,7 @@
 			<!-- Entries -->
 			<g class="entries">
 				{#each focusedRects as rect}
-					<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}>
+					<g transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`} opacity={highlightToOpacity(rect)}>
 						<rect
 							x={2}
 							y={2}

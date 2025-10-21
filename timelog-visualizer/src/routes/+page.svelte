@@ -9,6 +9,7 @@
 	import TimeRangeSelector from '$lib/components/TimeRangeSelector.svelte';
 	import { formatDate, setStartDateToMonday } from '$lib/DateHelpers';
 	import { on } from 'svelte/events';
+	import OmniTextbox from '$lib/components/OmniTextbox.svelte';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
@@ -116,6 +117,17 @@
 		processEntries = [];
 		systemEntries = [];
 	}
+
+	let searchString = $state('');
+	let highlightTerms = $derived.by(() => {
+		if (!searchString) return undefined;
+
+		// Search terms are either space-separated or quoted strings
+		let match = /"([^"]+)"|(\S+)/g;
+		let matches = searchString.matchAll(match);
+
+		return Array.from(matches, (m) => m[1] || m[2]).map((term) => term.toLowerCase());
+	});
 </script>
 
 <svelte:head>
@@ -123,7 +135,7 @@
 </svelte:head>
 
 <div class="container">
-	<h1>Time log viewer</h1>
+	<div class="toolbar"><OmniTextbox placeholder="Highlight..." bind:searchString /></div>
 	<TimeRangeSelector bind:startDate bind:endDate onchange={onTimeRangeChange} />
 	<CalendarView
 		entries={focusedEntries}
@@ -133,6 +145,7 @@
 		days={7}
 		hourStart={7}
 		hourEnd={22}
+		{highlightTerms}
 	/>
 </div>
 
@@ -143,6 +156,11 @@
 		height: 100vh;
 		display: flex;
 		flex-direction: column;
+	}
+
+	.toolbar {
+		margin: 1rem;
+		margin-bottom: 0;
 	}
 
 	.container {
