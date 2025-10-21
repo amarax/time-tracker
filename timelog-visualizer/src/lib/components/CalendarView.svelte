@@ -136,25 +136,6 @@
 		return `hsl(${hue}, 70%, 70%)`;
 	}
 
-	let processNameToIndex = $derived.by(() => {
-		// Group the processes by name
-		let processNames = new Set();
-		for (let entry of processEntries) {
-			if (entry.name) {
-				processNames.add(entry.name);
-			}
-		}
-
-		// Map each set to an index
-		/** @type {Record<string, number>}*/
-		const processNameToIndex = {};
-		let index = 0;
-		for (let name of [...processNames].sort()) {
-			processNameToIndex[name] = index++;
-		}
-		return processNameToIndex;
-	});
-
 	let displayedTimeRange = $derived(displayedHourEnd - displayedHourStart);
 
 	// D3 Y-axis setup
@@ -274,10 +255,14 @@
 	}
 
 	/**
+	 * @typedef {ProcessEntryBlock & {cpu:string, memory:string}} HoveredProcessEntry
+	 */
+
+	/**
 	 * Finds the closest entry to the mouse position.
 	 * @param {number} mouseX - The x-coordinate of the mouse.
 	 * @param {number} mouseY - The y-coordinate of the mouse.
-	 * @returns {FocusedEntry|ProcessEntry|null} The closest entry or null if none found.
+	 * returns {FocusedEntry|HoveredProcessEntry|null} The closest entry or null if none found.
 	 */
 	function findClosestEntry(mouseX, mouseY) {
 		if (!container) return null;
@@ -316,15 +301,15 @@
 			const dayXEnd = dayXStart + dayWidth;
 
 			const processNameIndex = Math.floor(
-				(Object.values(processNameToIndex).length * (svgX - dayXMid)) / (dayXEnd - dayXMid)
+				(processNameIndexLength * (svgX - dayXMid)) / (dayXEnd - dayXMid)
 			);
-			const processName = Object.entries(processNameToIndex).find(
-				([name, index]) => index === processNameIndex
-			)?.[0];
+			const uniqueProcessNames = new Set(Object.entries(processNameToIndex).filter(
+				([, index]) => index === processNameIndex
+			).map(([name]) => name));
 
 			// Search process entries
 			for (let entry of processEntries) {
-				if (entry.name !== processName) continue;
+				if (!uniqueProcessNames.has(getUniqueProcessName(entry))) continue;
 
 				const start = entry.start;
 				const end = entry.end;
@@ -355,6 +340,7 @@
 				return e;
 			}
 		}
+		return null;
 	}
 
 	// Create a number formatter for CPU and memory
@@ -491,7 +477,72 @@
 		)
 	);
 
-	let processColWidth = $derived((dayWidth * 0.5) / Object.values(processNameToIndex).length);
+
+
+	/**
+	 * @param {ProcessEntryBlock|undefined} entry
+	 * @returns {string}
+	 */
+	function getUniqueProcessName(entry) {
+		if (!entry) return "";
+		return entry.name + "-" + entry.pid;
+	}
+
+	let processNameToIndex = $derived.by(() => {
+		/**
+		 * @type {Map<string, Array<[Date,Date]>>}
+		 */
+		const processIntervals = new Map();
+		/** @type {Record<string, number>}*/
+		const processNameToIndex = {};
+
+		for (let rect of processRects) {
+			let entry = /** @type {ProcessEntryBlock} */ (rect.entry);
+			let groupIndex = 0;
+			let group = `${entry.name}-${groupIndex}`;
+			let processName = getUniqueProcessName(entry);
+
+			/**
+			 * Checks if a process entry can be placed in a specific group.
+			 * @param {ProcessEntryBlock} entry
+			 * @param {string} group
+			 */
+			function canPlaceInGroup(entry, group) {
+				const intervals = processIntervals.get(group);
+				if (!intervals) return true;
+
+				for (let [start, end] of intervals) {
+					if (
+						(entry.start < end && entry.end > start) // Overlap
+					) {
+						return false;
+					}
+				}
+				return true;
+			}
+
+			while (!canPlaceInGroup(entry, group)) {
+				groupIndex++;
+				group = `${entry.name}-${groupIndex}`;
+			}
+
+			if (!processIntervals.has(group)) {
+				processIntervals.set(group, []);
+			}
+			processIntervals.get(group)?.push([entry.start, entry.end]);
+
+			if (!(processName in processNameToIndex)) {
+				processNameToIndex[processName] = [...processIntervals.keys()].indexOf(group);
+			}
+		}
+		return processNameToIndex;
+	});
+	let processNameIndexLength = $derived(
+		Math.max(...Object.values(processNameToIndex).map(index => index + 1), 0)
+	);
+
+	let processColWidth = $derived((dayWidth * 0.5) / processNameIndexLength);
+
 
 	/**
 	 * Converts a process name to an x-offset based on its index.
@@ -555,6 +606,7 @@
 		}, 1000);
 		return () => clearInterval(interval);
 	});
+
 </script>
 
 <div bind:this={container} style="flex-grow:1; position:relative">
@@ -579,22 +631,11 @@
 				{/each}
 			</g>
 
-			<g class="system-entries">
-				{#each systemRects as rect}
-					<rect
-						class:sleep={rect.label === 'Sleep'}
-						width={dayWidth}
-						height={rectHeight(rect.start, rect.end)}
-						transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}
-					/>
-				{/each}
-			</g>
-
 			<!-- Process Entries -->
 			<g class="process-entries">
 				{#each processRects as rect, i}
 					<g
-						transform={`translate(${dateToX(rect.start) + dayWidth / 2 + processToXOffset(rect.entry?.name)}, ${dateToY(rect.start)})`}
+						transform={`translate(${dateToX(rect.start) + dayWidth / 2 + processToXOffset(getUniqueProcessName(rect.entry))}, ${dateToY(rect.start)})`}
 					>
 						<rect
 							x={2}
@@ -655,6 +696,17 @@
 							</text>
 						{/if}
 					</g>
+				{/each}
+			</g>
+
+			<g class="system-entries">
+				{#each systemRects as rect}
+					<rect
+						class:sleep={rect.label === 'Sleep'}
+						width={dayWidth}
+						height={rectHeight(rect.start, rect.end)}
+						transform={`translate(${dateToX(rect.start)}, ${dateToY(rect.start)})`}
+					/>
 				{/each}
 			</g>
 
@@ -734,11 +786,6 @@
 		fill: var(--calendar-fg-color);
 	}
 
-	/* Add a transition for translate transforms */
-	svg g {
-		/* transition: transform 0.1s ease-out; */
-	}
-
 	.calendar-tooltip {
 		pointer-events: none;
 		user-select: none;
@@ -752,7 +799,7 @@
 		fill: #4949491c;
 
 		&.sleep {
-			fill: rgb(194, 194, 194);
+			fill: rgba(194, 194, 194, 0.8);
 		}
 	}
 
