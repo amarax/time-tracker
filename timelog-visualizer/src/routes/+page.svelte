@@ -129,6 +129,10 @@
 
 		return Array.from(matches, (m) => m[1] || m[2]).map((term) => term.toLowerCase());
 	});
+
+	const hints = [
+		{ name: "Toggle Highlighting", description:"Hold CTRL to toggle highlighting on/off" }
+	]
 </script>
 
 <svelte:head>
@@ -137,7 +141,7 @@
 
 <div class="container">
 	<div class="toolbar">
-		<OmniTextbox placeholder="Highlight..." bind:searchString />
+		<OmniTextbox placeholder="Highlight..." bind:searchString {hints} />
 		<div class="toolbar-row">
 			<TimeRangeSelector bind:startDate bind:endDate onchange={onTimeRangeChange} />
 			<HighlightStats

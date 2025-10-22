@@ -4,9 +4,9 @@
 	 * @typedef {Object} Hints
 	 * @property {string} name Name of the hint
 	 * @property {string} description Description of the hint
-	 * @property {string} action Action string, with {selection} as a placeholder for selected text
-	 * @property {string} placeholder Placeholder text to insert if no text is selected
-	 * @property {string[]} examples Example usages of the hint
+	 * @property {string} [action] Action string, with {selection} as a placeholder for selected text
+	 * @property {string} [placeholder] Placeholder text to insert if no text is selected
+	 * @property {string[]} [examples] Example usages of the hint
 	*/
 
 
@@ -146,16 +146,20 @@
 					<div class="hint-text">
 						<strong>{hint.name}</strong>
 						<div class="hint-desc">{hint.description}
+							{#if hint.examples}
                             <br />
                             e.g. {#each hint.examples as example, i (example)}
-                            <code>{example}</code>{i < hint.examples.length - 1 ? ', ' : ''}
-                        {/each}
+                            	<code>{example}</code>{i < hint.examples.length - 1 ? ', ' : ''}
+                        	{/each}
+							{/if}
                         </div>
                         
 					</div>
-					<button class="hint-apply" title={hint.action} onclick={() => applyHint(hint.action, hint.placeholder)}>
-						Insert
-					</button>
+					{#if hint.action}
+						<button class="hint-apply" title={hint.action} onclick={() => applyHint(hint.action, hint.placeholder)}>
+							Insert
+						</button>
+					{/if}
 				</div>
 			{/each}
 		</div>
