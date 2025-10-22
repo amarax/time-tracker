@@ -370,10 +370,26 @@ function getProcessBlocks(entries) {
 }
 
 /**
- * Maps sleep and idle system entries to SVG rectangles.
- * @param {Array<SystemEntry>} entries - Array of system entries.
- *
+ * Determines if an entry matches the highlight text.
+ * @param {FocusedEntry|ProcessEntryBlock|SystemEntry|undefined} entry
+ * @param {string[]|undefined} highlightTerms - Array of lowercase highlight terms.
+ * @returns {boolean|null} True if the entry matches the highlight, false if not, or null if highlight is not set.
  */
+function isHighlighted(entry, highlightTerms) {
+	if (!highlightTerms) return null;
+
+	if(!entry) return false;
+
+	const focusedEntry = /** @type {FocusedEntry} */ (entry);
+	const titleMatch = !!focusedEntry.title && highlightTerms.some(term => focusedEntry.title.toLowerCase().includes(term));
+	const pathMatch = !!focusedEntry.path && highlightTerms.some(term => focusedEntry.path.toLowerCase().includes(term));
+	const processMatch = !!focusedEntry.process && highlightTerms.some(term => focusedEntry.process.toLowerCase().includes(term));
+
+	const processEntry = /** @type {ProcessEntryBlock} */ (entry);
+	const nameMatch = !!processEntry.name && highlightTerms.some(term => processEntry.name.toLowerCase().includes(term));
+
+	return nameMatch || titleMatch || pathMatch || processMatch;
+}
 
 export {
 	consolidateProcessEntries,
@@ -382,5 +398,8 @@ export {
 	getSystemBlocks,
 	getProcessBlocks,
 	convertSystemEntries,
-	currentMidnight
+	
+	currentMidnight,
+
+	isHighlighted
 };

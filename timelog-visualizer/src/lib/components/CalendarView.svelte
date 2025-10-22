@@ -5,7 +5,10 @@
 		currentMidnight,
 		getFocusedBlocks,
 		getProcessBlocks,
-		getSystemBlocks
+		getSystemBlocks,
+
+		isHighlighted
+
 	} from '$lib/CalendarEntries';
 	import CalendarViewTooltip from './CalendarViewTooltip.svelte';
 
@@ -274,9 +277,28 @@
 		return new Date(dateRange[dayIdx].getTime() + msOfDay - timeZoneOffset);
 	}
 
-	/**
-	 * @typedef {ProcessEntryBlock & {cpu:string, memory:string}} HoveredProcessEntry
-	 */
+	let toggleHighlight = $state(true);
+	let _highlightTerms = $derived(toggleHighlight ? highlightTerms : undefined);
+
+	onMount(()=>{
+		// Toggle highlight when CTRL is held down
+		function handleKeyDown(event) {
+			if (event.key === 'Control') {
+				toggleHighlight = false;
+			}
+		}
+		function handleKeyUp(event) {
+			if (event.key === 'Control') {
+				toggleHighlight = true;
+			}
+		}
+		window.addEventListener('keyup', handleKeyUp);
+		window.addEventListener('keydown', handleKeyDown);
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('keyup', handleKeyUp);
+		};
+	});
 
 	/**
 	 * Finds the closest entry to the mouse position.
@@ -309,7 +331,7 @@
 		const dayXMid = dayXStart + dayWidth / 2;
 		// If mouseX is outside the day range, return null
 		if (svgX <= dayXMid) {
-			for (let entry of entries.filter(e=>isHighlighted(e)!==false)) {
+			for (let entry of entries.filter(e=>isHighlighted(e, _highlightTerms)!==false)) {
 				const start = new Date(entry.start);
 				const end = entry.end ? new Date(entry.end) : new Date();
 				if (hoverTimeStamp < start || hoverTimeStamp > end) continue;
@@ -327,8 +349,10 @@
 				([, index]) => index === processNameIndex
 			).map(([name]) => name));
 
+			let entries = processEntries.filter(e=>isHighlighted(e, _highlightTerms)!==false);
+
 			// Search process entries
-			for (let entry of processEntries.filter(e=>isHighlighted(e)!==false)) {
+			for (let entry of entries) {
 				if (!uniqueProcessNames.has(getUniqueProcessName(entry))) continue;
 
 				const start = entry.start;
@@ -629,31 +653,12 @@
 	});
 
 	/**
-	 * Determines if an entry matches the highlight text.
-	 * @param {FocusedEntry|ProcessEntryBlock|SystemEntry|undefined} entry
-	 * @returns {boolean|null} True if the entry matches the highlight, false if not, or null if highlight is not set.
-	 */
-	function isHighlighted(entry) {
-		if (!highlightTerms) return null;
-
-		if(!entry) return false;
-
-		// Check if entry matches highlight
-		const nameMatch = !!entry.name && highlightTerms.some(term => entry.name.toLowerCase().includes(term));
-		const titleMatch = !!entry.title && highlightTerms.some(term => entry.title.toLowerCase().includes(term));
-		const pathMatch = !!entry.path && highlightTerms.some(term => entry.path.toLowerCase().includes(term));
-		const processMatch = !!entry.process && highlightTerms.some(term => entry.process.toLowerCase().includes(term));
-
-		return nameMatch || titleMatch || pathMatch || processMatch;
-	}
-
-	/**
 	 * Determines the opacity of an entry based on whether it matches the highlight text.
 	 * @param {CalendarBlock} rect - The entry to check.
 	 * @returns {number} The opacity value (1 for match, 0.2 for no match).
 	 */
 	function highlightToOpacity(rect) {
-		let match = isHighlighted(rect.entry);
+		let match = isHighlighted(rect.entry, _highlightTerms);
 		if (match === null) return 1; // No highlight set
 
 		return match ? 1 : 0.2;
@@ -824,7 +829,7 @@
 	}
 
 	.system-entries rect {
-		fill: #4949491c;
+		fill: rgba(194, 194, 194, 0.4);
 
 		&.sleep {
 			fill: rgba(194, 194, 194, 0.8);
