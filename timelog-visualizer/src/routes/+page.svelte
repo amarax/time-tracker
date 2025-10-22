@@ -10,6 +10,7 @@
 	import { formatDate, setStartDateToMonday } from '$lib/DateHelpers';
 	import { on } from 'svelte/events';
 	import OmniTextbox from '$lib/components/OmniTextbox.svelte';
+	import HighlightStats from '$lib/components/HighlightStats.svelte';
 
 	/**
 	 * @typedef {import('$lib/CalendarEntries').FocusedEntry} FocusedEntry
@@ -135,8 +136,17 @@
 </svelte:head>
 
 <div class="container">
-	<div class="toolbar"><OmniTextbox placeholder="Highlight..." bind:searchString /></div>
-	<TimeRangeSelector bind:startDate bind:endDate onchange={onTimeRangeChange} />
+	<div class="toolbar">
+		<OmniTextbox placeholder="Highlight..." bind:searchString />
+		<div class="toolbar-row">
+			<TimeRangeSelector bind:startDate bind:endDate onchange={onTimeRangeChange} />
+			<HighlightStats
+				{highlightTerms}
+				data={{system: systemEntries, focused: focusedEntries}}
+				timeRange={[startDate, endDate]}
+			/>
+		</div>
+	</div>
 	<CalendarView
 		entries={focusedEntries}
 		{processEntries}
@@ -176,8 +186,10 @@
 		overflow: hidden;
 	}
 
-	h1 {
-		text-align: left;
-		margin-bottom: 20px;
+	.toolbar-row {
+		display: flex;
+		flex-direction: row;
+		gap: 1rem;
+		margin: 0.5rem 0;
 	}
 </style>

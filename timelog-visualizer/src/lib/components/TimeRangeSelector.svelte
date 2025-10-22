@@ -53,25 +53,13 @@
 <style>
     
 	.week-nav {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: 1rem;
-		margin: 1rem;
-
         font-family: 'Roboto', sans-serif;
 	}
-	/* .week-nav button {
-		font-size: 1.5rem;
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 0.25em 0.75em;
-		border-radius: 0.25em;
-		transition: 0.2s;
-	} */
-	.week-label {
-		font-weight: bold;
-		font-size: 1.1rem;
-	}
+	
+    .week-label {
+    }
+
+	button {
+        font-size: 1em;
+    }
 </style>

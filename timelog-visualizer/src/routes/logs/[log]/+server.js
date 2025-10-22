@@ -1,7 +1,5 @@
-import fs from 'fs';
 import path from 'path';
 import { InfluxDB } from '@influxdata/influxdb-client';
-import { select } from 'd3';
 
 const LOG_DIR = path.resolve('../node-process-monitor/logs');
 
