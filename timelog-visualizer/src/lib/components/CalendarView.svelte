@@ -819,6 +819,12 @@
 		initial-value: #ccc;
 	}
 
+	svg {
+		width: 100%;
+		height: 100%;
+		background-color: var(--input-bg);
+	}
+
 	text {
 		font-family: Roboto, sans-serif;
 		user-select: none;

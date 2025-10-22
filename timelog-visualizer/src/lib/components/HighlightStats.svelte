@@ -149,22 +149,42 @@
 		flex-grow: 1;
 
 		margin-right: 6px;
-		background-color: #eee;
+		background-color: var(--panel-bg);
 		border-radius: 4px;
+
+        overflow: hidden;
 
 		.highlighted-time {
 			height: 100%;
 			background-color: #90ee90;
-			border-radius: 4px;
+			/* border-radius: 4px; */
 
             vertical-align: middle;
             text-align: right;
 
             transition: width 0.1s ease-in-out;
 
+            container-type: inline-size;
+            position: relative;
+
             .label {
-                margin-right: 0.2em;
-                vertical-align: middle;
+                margin: 0 0.2em;
+                height: 100%;
+
+                white-space: nowrap;
+
+                display: inline-flex;
+                align-items: center;
+            }
+
+            @container (width < 8em) {
+                .label {
+                    position: absolute;
+                    left: 100%;
+                    
+                    width: fit-content;
+                    text-align: left;
+                }
             }
 		}
 	}
