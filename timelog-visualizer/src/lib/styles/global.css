@@ -1,0 +1,96 @@
+:root {
+    --bg-light: #eeeeee;
+    --panel-bg-light: #cfcfcf;
+    --text-light: #333333;
+    --text-muted-light: #666666;
+    --border-light: #8a8a8a;
+    --hover-bg-light: rgba(0, 0, 0, 0.06);
+    --tag-bg-light: rgb(208, 215, 219);
+    --input-bg-light: #ffffff;
+    --input-bg-disabled-light: #f5f5f5;
+    --input-bg-hover-light: #fafafa;
+    --input-bg-active-light: #f0f0f0;
+    --link-light: #0066cc;
+
+    --bg-dark: #363636;
+    --panel-bg-dark: #292929;
+    --text-dark: #e5e7eb;
+    --text-muted-dark: #b1b1b1;
+    --border-dark: #646464;
+    --hover-bg-dark: rgba(255, 255, 255, 0.06);
+    --tag-bg-dark: #494a58;
+    --input-bg-dark: #444444;
+    --input-bg-disabled-dark: #333333;
+    --input-bg-hover-dark: #4a4a4a;
+    --input-bg-active-dark: #3a3a3a;
+    --link-dark: #3399ff;
+}
+
+
+html {
+    font-family: "Roboto", sans-serif;
+
+    /* Accent */
+    --selected-color: #0088ff;
+
+    /* Light theme (default) */
+    --bg: var(--bg-light);
+    --panel-bg: var(--panel-bg-light);
+    --text: var(--text-light);
+    --text-muted: var(--text-muted-light);
+    --border: var(--border-light);
+    --hover-bg: var(--hover-bg-light);
+    --tag-bg: var(--tag-bg-light);
+    --input-bg: var(--input-bg-light);
+    --input-bg-disabled: var(--input-bg-disabled-light);
+    --input-bg-hover: var(--input-bg-hover-light);
+    --input-bg-active: var(--input-bg-active-light);
+    --link: var(--link-light);
+}
+
+/* Dark theme overrides (applied when <html class="dark">) */
+html.dark {
+    --bg: var(--bg-dark);
+    --panel-bg: var(--panel-bg-dark);
+    --text: var(--text-dark);
+    --text-muted: var(--text-muted-dark);
+    --border: var(--border-dark);
+    --hover-bg: var(--hover-bg-dark);
+    --tag-bg: var(--tag-bg-dark);
+    --input-bg: var(--input-bg-dark);
+    --input-bg-disabled: var(--input-bg-disabled-dark);
+    --input-bg-hover: var(--input-bg-hover-dark);
+    --input-bg-active: var(--input-bg-active-dark);
+    --link: var(--link-dark);
+}
+
+html, body {
+    background: var(--bg);
+    color: var(--text);
+}
+
+select, input, textarea, button {
+    font-family: "Roboto", sans-serif;
+    color: var(--text);
+    background: var(--input-bg);
+    border-color: var(--border);
+}
+
+button {
+    cursor: pointer;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-bg);
+    padding: .25em .5em;
+
+    &:active {
+        background: var(--hover-bg);
+    }
+
+    &:disabled {
+        cursor: default;
+        background: var(--input-bg-disabled);
+        color: var(--text-muted);
+        border-color: var(--border);
+    }
+}
